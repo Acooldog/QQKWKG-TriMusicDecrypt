@@ -1,3 +1,13 @@
+License Scope Notice
+
+This LICENSE file applies to source code authored in this repository.
+Repository-authored source code is licensed under MIT.
+
+Distributed binaries, installers, bundled runtimes, and third-party tools are
+not MIT-only. The distributed package is a mixed distribution and third-party
+components remain subject to their own licenses. See
+THIRD_PARTY_LICENSES.md for details.
+
 MIT License
 
 Copyright (c) 2026 Acooldog

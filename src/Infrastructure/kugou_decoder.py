@@ -134,11 +134,12 @@ class StaticCipher(StreamCipher):
 
 
 class MapCipher(StreamCipher):
-    def __init__(self, key: bytes) -> None:
+    def __init__(self, key: bytes, *, use_native: bool = True) -> None:
         if not key:
             raise DecodeError("qmc map cipher key is empty")
         self.key = key
         self.size = len(key)
+        self.use_native = use_native
         self.native_backend = get_native_backend()
 
     @staticmethod
@@ -153,7 +154,7 @@ class MapCipher(StreamCipher):
         return self._rotate(self.key[idx], idx & 0x7)
 
     def decrypt(self, data: bytearray, offset: int) -> None:
-        if self.native_backend.available:
+        if self.use_native and self.native_backend.available:
             try:
                 self.native_backend.map_decrypt_inplace(data, len(data), self.key, offset)
                 return
@@ -167,11 +168,12 @@ class RC4Cipher(StreamCipher):
     SEGMENT_SIZE = 5120
     FIRST_SEGMENT_SIZE = 128
 
-    def __init__(self, key: bytes) -> None:
+    def __init__(self, key: bytes, *, use_native: bool = True) -> None:
         if not key:
             raise DecodeError("qmc rc4 cipher key is empty")
         self.key = key
         self.n = len(key)
+        self.use_native = use_native
         self.native_backend = get_native_backend()
         self.box = [i & 0xFF for i in range(self.n)]
         j = 0
@@ -209,7 +211,7 @@ class RC4Cipher(StreamCipher):
                 data[i] ^= box[(box[j] + box[k]) % self.n]
 
     def decrypt(self, data: bytearray, offset: int) -> None:
-        if self.native_backend.available:
+        if self.use_native and self.native_backend.available:
             try:
                 self.native_backend.rc4_decrypt_inplace(data, len(data), self.key, offset)
                 return
@@ -483,13 +485,13 @@ def _derive_key_v2(raw: bytes) -> bytes:
     return base64.b64decode(step2)
 
 
-def _new_qmc_cipher_from_ekey(ekey: str | bytes) -> StreamCipher:
+def _new_qmc_cipher_from_ekey(ekey: str | bytes, *, use_native: bool = True) -> StreamCipher:
     raw = ekey.encode("utf-8") if isinstance(ekey, str) else ekey
     key = _derive_key(raw)
     if len(key) > 300:
-        return RC4Cipher(key)
+        return RC4Cipher(key, use_native=use_native)
     if key:
-        return MapCipher(key)
+        return MapCipher(key, use_native=use_native)
     return StaticCipher()
 
 
@@ -565,11 +567,13 @@ def _decode_v3_chunk(
     pub_key: bytes,
     start_pos: int,
     data_len: int | None = None,
+    *,
+    use_native: bool = True,
 ) -> tuple[bool, str | None]:
     length = len(data) if data_len is None else data_len
     native_backend = get_native_backend()
     fallback_reason = None
-    if native_backend.available:
+    if use_native and native_backend.available:
         try:
             native_backend.decode_v3_inplace(data, length, own_key, pub_key, start_pos)
             return True, None
@@ -709,6 +713,7 @@ def _decode_v3_stream(
     *,
     chunk_size: int = V3_STREAM_CHUNK_SIZE,
     compute_hash: bool = False,
+    use_native: bool = True,
 ) -> dict:
     pos = 0
     sha256 = hashlib.sha256() if compute_hash else None
@@ -725,7 +730,7 @@ def _decode_v3_stream(
         if not read_len:
             break
         chunk_count += 1
-        used_native, fallback_reason = _decode_v3_chunk(buffer, own_key, pub_key, pos, read_len)
+        used_native, fallback_reason = _decode_v3_chunk(buffer, own_key, pub_key, pos, read_len, use_native=use_native)
         if used_native:
             native_chunk_count += 1
         elif fallback_reason is not None:
@@ -911,6 +916,8 @@ def decode_file(
     failed_raw_dir: pathlib.Path | None = None,
     publish_unrecognized_to_output: bool = True,
     attempt: str = "initial",
+    force_python_v3: bool = False,
+    force_python_v5: bool = False,
 ) -> dict:
     started_perf = time.perf_counter()
     native_backend = get_native_backend()
@@ -940,7 +947,7 @@ def decode_file(
             ekey = mapping.get(header.audio_hash)
             if not ekey:
                 raise DecodeError(f"ekey missing for audio_hash={header.audio_hash}")
-            cipher = _new_qmc_cipher_from_ekey(ekey)
+            cipher = _new_qmc_cipher_from_ekey(ekey, use_native=not force_python_v5)
             timing["key_material_sec"] = round(time.perf_counter() - key_started, 6)
             decode_started = time.perf_counter()
             with input_path.open("rb", buffering=V5_STREAM_CHUNK_SIZE) as src, temp_output.open("wb", buffering=V5_STREAM_CHUNK_SIZE) as dst:
@@ -960,7 +967,15 @@ def decode_file(
             decode_started = time.perf_counter()
             with input_path.open("rb", buffering=V3_STREAM_CHUNK_SIZE) as src, temp_output.open("wb", buffering=V3_STREAM_CHUNK_SIZE) as dst:
                 src.seek(header.audio_offset)
-                summary = _decode_v3_stream(src, dst, bytes(own_key), pub_key, chunk_size=V3_STREAM_CHUNK_SIZE, compute_hash=False)
+                summary = _decode_v3_stream(
+                    src,
+                    dst,
+                    bytes(own_key),
+                    pub_key,
+                    chunk_size=V3_STREAM_CHUNK_SIZE,
+                    compute_hash=False,
+                    use_native=not force_python_v3,
+                )
             timing["stream_decode_sec"] = round(time.perf_counter() - decode_started, 6)
             summary["own_key_hex"] = bytes(own_key).hex()
             summary["crypto_mode"] = "v3"
@@ -973,6 +988,40 @@ def decode_file(
             probed_container = probe_audio_container(temp_output)
         detected_container = probed_container or fast_container
         final_ext = detected_container
+        if (
+            final_ext == "bin"
+            and header.crypto_version != 5
+            and not force_python_v3
+            and native_backend.available
+        ):
+            return decode_file(
+                input_path,
+                output_dir,
+                key_path=key_path,
+                kgg_db_path=kgg_db_path,
+                failed_raw_dir=failed_raw_dir,
+                publish_unrecognized_to_output=publish_unrecognized_to_output,
+                attempt="python_retry",
+                force_python_v3=True,
+                force_python_v5=force_python_v5,
+            )
+        if (
+            final_ext == "bin"
+            and header.crypto_version == 5
+            and not force_python_v5
+            and native_backend.available
+        ):
+            return decode_file(
+                input_path,
+                output_dir,
+                key_path=key_path,
+                kgg_db_path=kgg_db_path,
+                failed_raw_dir=failed_raw_dir,
+                publish_unrecognized_to_output=publish_unrecognized_to_output,
+                attempt="python_retry",
+                force_python_v3=force_python_v3,
+                force_python_v5=True,
+            )
         if final_ext == "bin" and not publish_unrecognized_to_output:
             failed_raw_path = None
             if failed_raw_dir is not None:
@@ -996,7 +1045,9 @@ def decode_file(
                     "detected_container": detected_container,
                     "final_extension": None,
                     "recognition_stage": "fast_probe_failed",
-                    "backend": f"native-c:{native_backend.dll_path.name}" if native_backend.available and native_backend.dll_path else "python",
+                    "backend": "python-forced"
+                    if force_python_v3 or force_python_v5
+                    else (f"native-c:{native_backend.dll_path.name}" if native_backend.available and native_backend.dll_path else "python"),
                     "timing": timing,
                 }
             )
@@ -1021,7 +1072,9 @@ def decode_file(
                 "detected_container": detected_container,
                 "final_extension": final_ext,
                 "recognition_stage": "fast" if detected_container == fast_container else "ffmpeg_probe",
-                "backend": f"native-c:{native_backend.dll_path.name}" if native_backend.available and native_backend.dll_path else "python",
+                "backend": "python-forced"
+                if force_python_v3 or force_python_v5
+                else (f"native-c:{native_backend.dll_path.name}" if native_backend.available and native_backend.dll_path else "python"),
                 "timing": timing,
             }
         )
