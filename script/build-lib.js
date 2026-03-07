@@ -95,9 +95,17 @@ function resolvePythonExe(rootDir) {
     ensureFile(fromEnv, "python from QKK_PYTHON_EXE");
     return fromEnv;
   }
-  const candidate = path.join(rootDir, ".venv", "Scripts", "python.exe");
-  ensureFile(candidate, "venv python");
-  return candidate;
+  const candidates = [
+    path.join(rootDir, ".venv", "Scripts", "python.exe"),
+    path.join(path.dirname(rootDir), "A_QKKd", ".venv", "Scripts", "python.exe"),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+      return candidate;
+    }
+  }
+  ensureFile(candidates[0], "venv python");
+  return candidates[0];
 }
 
 function locateIscc() {
