@@ -10,6 +10,17 @@ from src.Infrastructure.runtime_paths import RuntimePaths
 SUPPORTED_TARGET_FORMATS = {"auto", "flac", "ogg", "m4a", "mp3", "wav"}
 
 
+def _subprocess_window_kwargs() -> dict[str, object]:
+    if hasattr(subprocess, "CREATE_NO_WINDOW"):
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        return {
+            "creationflags": subprocess.CREATE_NO_WINDOW,
+            "startupinfo": startupinfo,
+        }
+    return {}
+
+
 def normalize_target_format(value: str) -> str:
     normalized = str(value or "auto").strip().lower()
     if normalized not in SUPPORTED_TARGET_FORMATS:
@@ -68,7 +79,15 @@ def probe_audio_container(input_path: pathlib.Path) -> str | None:
         "null",
         "NUL",
     ]
-    completed = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
+    completed = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        **_subprocess_window_kwargs(),
+    )
     stderr = completed.stderr or ""
     marker = "Input #0, "
     start = stderr.find(marker)
@@ -113,6 +132,12 @@ def _codec_args(target_format: str) -> list[str]:
     return []
 
 
+def _stream_selection_args(target_format: str) -> list[str]:
+    if target_format in {"mp3", "ogg", "m4a", "wav", "flac"}:
+        return ["-map", "0:a:0", "-vn", "-sn", "-dn"]
+    return []
+
+
 def transcode_file(input_path: pathlib.Path, output_path: pathlib.Path, target_format: str) -> dict[str, str | int]:
     paths = RuntimePaths.discover()
     ffmpeg_path = resolve_ffmpeg_path(paths)
@@ -128,11 +153,20 @@ def transcode_file(input_path: pathlib.Path, output_path: pathlib.Path, target_f
         "error",
         "-i",
         str(input_path),
+        *_stream_selection_args(target_format),
         *_codec_args(target_format),
         str(temp_output),
     ]
     try:
-        completed = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            **_subprocess_window_kwargs(),
+        )
         if completed.returncode != 0:
             stderr = completed.stderr.strip() or completed.stdout.strip() or f"ffmpeg rc={completed.returncode}"
             raise RuntimeError(f"ffmpeg transcode failed: {stderr}")
