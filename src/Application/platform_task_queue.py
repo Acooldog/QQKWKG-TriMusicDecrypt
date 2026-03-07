@@ -33,6 +33,7 @@ class PlatformTaskState:
     current_total: int = 0
     queue_position: int = 0
     success_count: int = 0
+    recovered_count: int = 0
     skipped_count: int = 0
     failed_count: int = 0
     candidate_count: int = 0
@@ -60,6 +61,7 @@ class PlatformTaskState:
             "current_total": self.current_total,
             "queue_position": self.queue_position,
             "success_count": self.success_count,
+            "recovered_count": self.recovered_count,
             "skipped_count": self.skipped_count,
             "failed_count": self.failed_count,
             "candidate_count": self.candidate_count,
@@ -196,6 +198,20 @@ class PlatformTaskQueue:
         self._reindex_queue_locked()
         self._push_state_locked()
 
+    def _build_completion_message(self, task: PlatformTaskState, result_code: int) -> tuple[str, str]:
+        if result_code == 3 or task.stop_requested:
+            return "stopped", "已停止"
+        if result_code != 0:
+            return "failed", f"失败 {task.failed_count} 个，跳过 {task.skipped_count} 个"
+        if task.success_count == 0 and task.skipped_count > 0:
+            return "skipped", f"本轮全部跳过，共 {task.skipped_count} 个文件"
+        pieces = [f"成功 {task.success_count}"]
+        if task.recovered_count > 0:
+            pieces.append(f"恢复 {task.recovered_count}")
+        if task.skipped_count > 0:
+            pieces.append(f"跳过 {task.skipped_count}")
+        return "success", "已完成，" + "，".join(pieces)
+
     def _run_task(self, platform_id: str) -> None:
         adapter = build_platform_adapter(platform_id)
         while True:
@@ -230,29 +246,17 @@ class PlatformTaskQueue:
                 task = self._tasks[platform_id]
                 task.result_code = result_code
                 task.last_updated = time.time()
+                if not task.continuous:
+                    task.status, task.message = self._build_completion_message(task, result_code)
+                    self._running.discard(platform_id)
+                    self._emit_log_locked(f"[done] {task.title} result_code={result_code}")
+                    self._drain_locked()
+                    return
                 if result_code == 3 or task.stop_requested:
                     task.status = "stopped"
                     task.message = "已停止"
                     self._running.discard(platform_id)
                     self._emit_log_locked(f"[done] {task.title} stopped")
-                    self._drain_locked()
-                    return
-                if not task.continuous:
-                    if result_code == 0:
-                        if task.success_count == 0 and task.skipped_count > 0:
-                            task.status = "skipped"
-                            task.message = f"本轮全部跳过，共 {task.skipped_count} 个文件"
-                        elif task.skipped_count > 0:
-                            task.status = "success"
-                            task.message = f"已完成，成功 {task.success_count}，跳过 {task.skipped_count}"
-                        else:
-                            task.status = "success"
-                            task.message = f"已完成，成功 {task.success_count} 个文件"
-                    else:
-                        task.status = "failed"
-                        task.message = f"失败 {task.failed_count} 个，跳过 {task.skipped_count} 个"
-                    self._running.discard(platform_id)
-                    self._emit_log_locked(f"[done] {task.title} result_code={result_code}")
                     self._drain_locked()
                     return
                 task.status = "waiting"
@@ -298,8 +302,12 @@ class PlatformTaskQueue:
                 task.message = pathlib.Path(task.current_file).name if task.current_file else "处理中"
             elif event_name == "file_finished":
                 result = str(payload.get("result", "") or "")
+                detail_payload = dict(payload.get("payload", {}) or {})
+                backend = str(detail_payload.get("backend", "") or "")
                 if result == "success":
                     task.success_count += 1
+                    if backend == "python-forced":
+                        task.recovered_count += 1
                 elif result == "already_decrypted":
                     task.skipped_count += 1
                 elif result == "failed":

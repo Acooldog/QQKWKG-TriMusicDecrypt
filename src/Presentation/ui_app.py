@@ -58,7 +58,8 @@ SUCCESS = "#22C55E"
 WARNING = "#F59E0B"
 DANGER = "#EF4444"
 
-FORMATS = ["auto"] + [item for item in supported_transcode_formats() if item != "auto"]
+FORMATS = ["auto"] + [item for item in supported_transcode_formats()
+                      if item != "auto"]
 QQ_RULE_FORMATS = ["flac", "ogg", "m4a", "mp3", "wav"]
 
 
@@ -149,7 +150,8 @@ class TitleBar(QFrame):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_offset = event.globalPosition().toPoint() - self.window().frameGeometry().topLeft()
+            self._drag_offset = event.globalPosition().toPoint() - \
+                self.window().frameGeometry().topLeft()
             event.accept()
             return
         super().mousePressEvent(event)
@@ -172,7 +174,8 @@ class StartupNoticeDialog(QDialog):
         self._drag_origin: QPoint | None = None
         self.setWindowTitle("免费软件提示")
         self.setModal(True)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setFixedSize(520, 280)
 
@@ -221,7 +224,8 @@ class StartupNoticeDialog(QDialog):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_origin = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self._drag_origin = event.globalPosition().toPoint() - \
+                self.frameGeometry().topLeft()
             event.accept()
             return
         super().mousePressEvent(event)
@@ -273,7 +277,8 @@ class PlatformCard(QFrame):
         super().__init__()
         self.platform_id = platform_id
         self.setObjectName("PlatformCard")
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding,
+                           QSizePolicy.Policy.Fixed)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self._format_widgets: dict[str, QComboBox] = {}
         self._extra_fields: dict[str, PathField] = {}
@@ -326,11 +331,13 @@ class PlatformCard(QFrame):
         button_row.setSpacing(10)
         self.run_button = QPushButton("开始该平台任务")
         self.run_button.setObjectName("PrimaryButton")
-        self.run_button.clicked.connect(lambda: self.run_requested.emit(self.platform_id))
+        self.run_button.clicked.connect(
+            lambda: self.run_requested.emit(self.platform_id))
         self.stop_button = QPushButton("停止当前任务")
         self.stop_button.setObjectName("DangerButton")
         self.stop_button.setEnabled(False)
-        self.stop_button.clicked.connect(lambda: self.stop_requested.emit(self.platform_id))
+        self.stop_button.clicked.connect(
+            lambda: self.stop_requested.emit(self.platform_id))
         button_row.addWidget(self.run_button, 1)
         button_row.addWidget(self.stop_button, 1)
         root.addLayout(button_row)
@@ -353,7 +360,8 @@ class PlatformCard(QFrame):
 
     def set_format_value(self, key: str, value: str) -> None:
         combo = self._format_widgets[key]
-        value = value if value in [combo.itemText(i) for i in range(combo.count())] else combo.itemText(0)
+        value = value if value in [combo.itemText(
+            i) for i in range(combo.count())] else combo.itemText(0)
         combo.setCurrentText(value)
 
     def format_value(self, key: str) -> str:
@@ -378,14 +386,17 @@ class PlatformCard(QFrame):
         self.status_label.setText(f"状态：{mapping.get(status, status)}")
         self.message_label.setText(f"说明：{payload.get('message', '无')}")
         self.count_label.setText(
-            "统计：成功 {success}，跳过 {skipped}，失败 {failed}".format(
+            "统计：成功 {success}，恢复 {recovered}，跳过 {skipped}，失败 {failed}".format(
                 success=int(payload.get("success_count", 0) or 0),
+                recovered=int(payload.get("recovered_count", 0) or 0),
                 skipped=int(payload.get("skipped_count", 0) or 0),
                 failed=int(payload.get("failed_count", 0) or 0),
             )
         )
-        self.progress_label.setText(f"进度：{payload.get('current_index', 0)} / {payload.get('current_total', 0)}")
-        current_file = pathlib.Path(str(payload.get("current_file", "") or "")).name or "无"
+        self.progress_label.setText(
+            f"进度：{payload.get('current_index', 0)} / {payload.get('current_total', 0)}")
+        current_file = pathlib.Path(
+            str(payload.get("current_file", "") or "")).name or "无"
         self.file_label.setText(f"当前文件：{current_file}")
         hotspot = payload.get("timing_hotspot") or {}
         hotspot_text = f"{hotspot.get('stage', '无')} / {hotspot.get('ratio', 0)}" if hotspot else "无"
@@ -395,6 +406,7 @@ class PlatformCard(QFrame):
         self.stop_button.setEnabled(active)
         self.continuous_checkbox.setEnabled(not active)
 
+
 class MainWindow(QWidget):
     def __init__(self) -> None:
         super().__init__()
@@ -403,7 +415,8 @@ class MainWindow(QWidget):
         save_default_config_if_missing(self.paths)
         self.root_config, self.config = load_config(self.paths)
         self.bridge = UiBridge()
-        self._collision_waiter: tuple[threading.Event, dict[str, str], str, str, str | None] | None = None
+        self._collision_waiter: tuple[threading.Event,
+                                      dict[str, str], str, str, str | None] | None = None
         self._task_queue = PlatformTaskQueue(
             task_starter=self._start_task_thread,
             state_sink=lambda states: self.bridge.states_changed.emit(states),
@@ -425,7 +438,8 @@ class MainWindow(QWidget):
             self.setWindowIcon(QIcon(str(icon_path)))
         self.setMinimumSize(900, 620)
         self.resize(1040, 680)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
         outer = QVBoxLayout(self)
@@ -439,7 +453,8 @@ class MainWindow(QWidget):
         shell_layout.setSpacing(0)
         outer.addWidget(shell)
 
-        shell_layout.addWidget(TitleBar(self, f"{PROJECT_NAME_EN} | {PROJECT_NAME_ZH}"))
+        shell_layout.addWidget(
+            TitleBar(self, f"{PROJECT_NAME_EN} | {PROJECT_NAME_ZH}"))
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -459,12 +474,14 @@ class MainWindow(QWidget):
         info_layout.setSpacing(8)
         title = QLabel("统一解密工作台")
         title.setObjectName("HeroTitle")
-        desc = QLabel("支持 QQ 音乐、酷我音乐、酷狗音乐。QQ 和酷我需要软件保持运行，酷狗为纯文件级离线解密。")
+        desc = QLabel(
+            "支持 QQ 音乐、酷我音乐、酷狗音乐。QQ 和酷我需要软件保持运行，酷狗为纯文件级离线解密，前提是必须安装酷狗音乐。")
         desc.setWordWrap(True)
         desc.setObjectName("HeroSubtitle")
         link = QLabel(f'<a href="{PROJECT_ADDRESS}">{PROJECT_ADDRESS}</a>')
         link.setOpenExternalLinks(True)
-        legal = QLabel(f"QQ：{PROJECT_QQ}\n{QQMUSIC_ATTRIBUTION}\n{LEGAL_NOTICE}")
+        legal = QLabel(
+            f"QQ：{PROJECT_QQ}\n{QQMUSIC_ATTRIBUTION}\n{LEGAL_NOTICE}")
         legal.setWordWrap(True)
         legal.setObjectName("MutedText")
         info_layout.addWidget(title)
@@ -512,7 +529,8 @@ class MainWindow(QWidget):
         cards_row.addWidget(qq_card, 1)
         self._cards["qq"] = qq_card
 
-        kuwo_card = PlatformCard("kuwo", "酷我音乐", "运行期解密，开始任务前会检查 kwmusic.exe 进程。")
+        kuwo_card = PlatformCard(
+            "kuwo", "酷我音乐", "运行期解密，开始任务前会检查 kwmusic.exe 进程。")
         kuwo_card.add_format_combo("format_kwm", "kwm 输出格式", FORMATS)
         kuwo_card.add_extra_field("exe_path", "酷我程序路径（可选）", directory=False)
         kuwo_card.add_extra_field("signature_file", "签名文件路径", directory=False)
@@ -520,10 +538,13 @@ class MainWindow(QWidget):
         self._cards["kuwo"] = kuwo_card
 
         kugou_card = PlatformCard("kugou", "酷狗音乐", "文件级离线解密，不要求 KuGou 运行。")
-        kugou_card.add_format_combo("target_format_kgma", "kgma/kgm/vpr 输出格式", FORMATS)
+        kugou_card.add_format_combo(
+            "target_format_kgma", "kgma/kgm/vpr 输出格式", FORMATS)
         kugou_card.add_format_combo("target_format_kgg", "kgg 输出格式", FORMATS)
-        kugou_card.add_extra_field("key_file", "kugou_key.xz 路径", directory=False)
-        kugou_card.add_extra_field("kgg_db_path", "KGMusicV3.db 路径", directory=False)
+        kugou_card.add_extra_field(
+            "key_file", "kugou_key.xz 路径", directory=False)
+        kugou_card.add_extra_field(
+            "kgg_db_path", "KGMusicV3.db 路径", directory=False)
         cards_row.addWidget(kugou_card, 1)
         self._cards["kugou"] = kugou_card
 
@@ -550,18 +571,24 @@ class MainWindow(QWidget):
         self.setStyleSheet(build_app_stylesheet())
 
     def _connect_signals(self) -> None:
-        self.output_field.button.clicked.connect(lambda: self._choose_path(self.output_field))
+        self.output_field.button.clicked.connect(
+            lambda: self._choose_path(self.output_field))
         self.save_button.clicked.connect(self._save_config_from_widgets)
         self.reload_button.clicked.connect(self._reload_config)
         self.open_output_button.clicked.connect(self._open_output_dir)
         for platform_id, card in self._cards.items():
-            card.input_field.button.clicked.connect(lambda _=False, pid=platform_id: self._choose_path(self._cards[pid].input_field))
+            card.input_field.button.clicked.connect(
+                lambda _=False, pid=platform_id: self._choose_path(self._cards[pid].input_field))
             card.run_requested.connect(self._handle_platform_action)
             card.stop_requested.connect(self._handle_platform_stop)
-        self._cards["kuwo"].extra_field("exe_path").button.clicked.connect(lambda: self._choose_file(self._cards["kuwo"].extra_field("exe_path"), "选择酷我程序", "程序 (*.exe);;所有文件 (*.*)"))
-        self._cards["kuwo"].extra_field("signature_file").button.clicked.connect(lambda: self._choose_file(self._cards["kuwo"].extra_field("signature_file"), "选择签名文件", "JSON (*.json);;所有文件 (*.*)"))
-        self._cards["kugou"].extra_field("key_file").button.clicked.connect(lambda: self._choose_file(self._cards["kugou"].extra_field("key_file"), "选择 kugou_key.xz", "XZ 文件 (*.xz);;所有文件 (*.*)"))
-        self._cards["kugou"].extra_field("kgg_db_path").button.clicked.connect(lambda: self._choose_file(self._cards["kugou"].extra_field("kgg_db_path"), "选择 KGMusicV3.db", "数据库 (*.db);;所有文件 (*.*)"))
+        self._cards["kuwo"].extra_field("exe_path").button.clicked.connect(lambda: self._choose_file(
+            self._cards["kuwo"].extra_field("exe_path"), "选择酷我程序", "程序 (*.exe);;所有文件 (*.*)"))
+        self._cards["kuwo"].extra_field("signature_file").button.clicked.connect(lambda: self._choose_file(
+            self._cards["kuwo"].extra_field("signature_file"), "选择签名文件", "JSON (*.json);;所有文件 (*.*)"))
+        self._cards["kugou"].extra_field("key_file").button.clicked.connect(lambda: self._choose_file(
+            self._cards["kugou"].extra_field("key_file"), "选择 kugou_key.xz", "XZ 文件 (*.xz);;所有文件 (*.*)"))
+        self._cards["kugou"].extra_field("kgg_db_path").button.clicked.connect(lambda: self._choose_file(
+            self._cards["kugou"].extra_field("kgg_db_path"), "选择 KGMusicV3.db", "数据库 (*.db);;所有文件 (*.*)"))
         self.bridge.states_changed.connect(self._apply_states)
         self.bridge.log_line.connect(self._append_log)
         self.bridge.collision_request.connect(self._handle_collision_request)
@@ -569,27 +596,39 @@ class MainWindow(QWidget):
     def _load_config_into_widgets(self) -> None:
         self.root_config, self.config = load_config(self.paths)
         shared = self.config["shared"]
-        self.output_field.setText(str(shared.get("output_dir", self.paths.output_dir)))
+        self.output_field.setText(
+            str(shared.get("output_dir", self.paths.output_dir)))
         self.recursive_checkbox.setChecked(bool(shared.get("recursive", True)))
 
         qq = self.config["qq"]
         self._cards["qq"].input_field.setText(str(qq.get("input_dir", "")))
-        self._cards["qq"].set_format_value("mflac", str((qq.get("format_rules") or {}).get("mflac", "flac")))
-        self._cards["qq"].set_format_value("mgg", str((qq.get("format_rules") or {}).get("mgg", "ogg")))
-        self._cards["qq"].set_format_value("mmp4", str((qq.get("format_rules") or {}).get("mmp4", "m4a")))
+        self._cards["qq"].set_format_value("mflac", str(
+            (qq.get("format_rules") or {}).get("mflac", "flac")))
+        self._cards["qq"].set_format_value("mgg", str(
+            (qq.get("format_rules") or {}).get("mgg", "ogg")))
+        self._cards["qq"].set_format_value("mmp4", str(
+            (qq.get("format_rules") or {}).get("mmp4", "m4a")))
 
         kuwo = self.config["kuwo"]
         self._cards["kuwo"].input_field.setText(str(kuwo.get("input_dir", "")))
-        self._cards["kuwo"].set_format_value("format_kwm", str(kuwo.get("format_kwm", "auto")))
-        self._cards["kuwo"].extra_field("exe_path").setText(str(kuwo.get("exe_path", "")))
-        self._cards["kuwo"].extra_field("signature_file").setText(str(kuwo.get("signature_file", "")))
+        self._cards["kuwo"].set_format_value(
+            "format_kwm", str(kuwo.get("format_kwm", "auto")))
+        self._cards["kuwo"].extra_field("exe_path").setText(
+            str(kuwo.get("exe_path", "")))
+        self._cards["kuwo"].extra_field("signature_file").setText(
+            str(kuwo.get("signature_file", "")))
 
         kugou = self.config["kugou"]
-        self._cards["kugou"].input_field.setText(str(kugou.get("input_dir", "")))
-        self._cards["kugou"].set_format_value("target_format_kgma", str(kugou.get("target_format_kgma", "auto")))
-        self._cards["kugou"].set_format_value("target_format_kgg", str(kugou.get("target_format_kgg", "auto")))
-        self._cards["kugou"].extra_field("key_file").setText(str(kugou.get("key_file", "")))
-        self._cards["kugou"].extra_field("kgg_db_path").setText(str(kugou.get("kgg_db_path", "")))
+        self._cards["kugou"].input_field.setText(
+            str(kugou.get("input_dir", "")))
+        self._cards["kugou"].set_format_value(
+            "target_format_kgma", str(kugou.get("target_format_kgma", "auto")))
+        self._cards["kugou"].set_format_value(
+            "target_format_kgg", str(kugou.get("target_format_kgg", "auto")))
+        self._cards["kugou"].extra_field("key_file").setText(
+            str(kugou.get("key_file", "")))
+        self._cards["kugou"].extra_field("kgg_db_path").setText(
+            str(kugou.get("kgg_db_path", "")))
 
     def _save_config_from_widgets(self) -> None:
         shared = {
@@ -620,7 +659,8 @@ class MainWindow(QWidget):
             "target_format_kgma": self._cards["kugou"].format_value("target_format_kgma"),
             "target_format_kgg": self._cards["kugou"].format_value("target_format_kgg"),
         }
-        self.config = {"shared": shared, "qq": qq, "kuwo": kuwo, "kugou": kugou}
+        self.config = {"shared": shared, "qq": qq,
+                       "kuwo": kuwo, "kugou": kugou}
         save_config(self.paths, self.root_config, self.config)
         self._append_log("配置已保存。")
 
@@ -629,7 +669,8 @@ class MainWindow(QWidget):
         self._append_log("已重新读取配置文件。")
 
     def _open_output_dir(self) -> None:
-        output_dir = pathlib.Path(self.output_field.text() or str(self.paths.output_dir))
+        output_dir = pathlib.Path(
+            self.output_field.text() or str(self.paths.output_dir))
         output_dir.mkdir(parents=True, exist_ok=True)
         QDesktopServices.openUrl(output_dir.as_uri())
 
@@ -641,7 +682,8 @@ class MainWindow(QWidget):
 
     def _choose_file(self, field: PathField, title: str, filter_text: str) -> None:
         start = field.text() or str(self.paths.root_dir)
-        selected, _ = QFileDialog.getOpenFileName(self, title, start, filter_text)
+        selected, _ = QFileDialog.getOpenFileName(
+            self, title, start, filter_text)
         if selected:
             field.setText(selected)
 
@@ -650,7 +692,8 @@ class MainWindow(QWidget):
         adapter = build_platform_adapter(platform_id)
         title = {"qq": "QQ音乐", "kuwo": "酷我音乐", "kugou": "酷狗音乐"}[platform_id]
         input_path = pathlib.Path(self._cards[platform_id].input_field.text())
-        output_dir = pathlib.Path(self.output_field.text() or str(self.paths.output_dir))
+        output_dir = pathlib.Path(
+            self.output_field.text() or str(self.paths.output_dir))
         settings = dict(self.config[platform_id])
         if not input_path.exists():
             self._show_message("输入路径无效", f"{title} 的输入路径不存在。")
@@ -661,12 +704,14 @@ class MainWindow(QWidget):
                 found = auto_find_kugou_key(self.paths)
                 if found is not None:
                     settings["key_file"] = str(found)
-                    self._cards["kugou"].extra_field("key_file").setText(str(found))
+                    self._cards["kugou"].extra_field(
+                        "key_file").setText(str(found))
             if not settings.get("kgg_db_path"):
                 found_db = auto_find_kgg_db_path()
                 if found_db is not None:
                     settings["kgg_db_path"] = str(found_db)
-                    self._cards["kugou"].extra_field("kgg_db_path").setText(str(found_db))
+                    self._cards["kugou"].extra_field(
+                        "kgg_db_path").setText(str(found_db))
 
         if adapter.requires_running_process():
             while True:
@@ -696,7 +741,8 @@ class MainWindow(QWidget):
             output_dir=output_dir,
             recursive=self.recursive_checkbox.isChecked(),
             settings=settings,
-            continuous=self._cards[platform_id].continuous_checkbox.isChecked(),
+            continuous=self._cards[platform_id].continuous_checkbox.isChecked(
+            ),
         )
         if not submitted:
             self._show_message("任务未提交", error or "当前平台任务已在运行或排队。")
@@ -719,7 +765,8 @@ class MainWindow(QWidget):
     def _resolve_collision(self, base_name: str, extension: str, existing_platform: str | None) -> str:
         event = threading.Event()
         holder: dict[str, str] = {"choice": "suffix"}
-        self.bridge.collision_request.emit((event, holder, base_name, extension, existing_platform))
+        self.bridge.collision_request.emit(
+            (event, holder, base_name, extension, existing_platform))
         event.wait()
         return holder["choice"]
 
@@ -731,7 +778,8 @@ class MainWindow(QWidget):
         box.setText(text)
         suffix_btn = box.addButton("加平台后缀", QMessageBox.ButtonRole.AcceptRole)
         subdir_btn = box.addButton("分平台子目录", QMessageBox.ButtonRole.ActionRole)
-        overwrite_btn = box.addButton("覆盖", QMessageBox.ButtonRole.DestructiveRole)
+        overwrite_btn = box.addButton(
+            "覆盖", QMessageBox.ButtonRole.DestructiveRole)
         box.exec()
         clicked = box.clickedButton()
         if clicked is overwrite_btn:
@@ -756,11 +804,13 @@ class MainWindow(QWidget):
                 running += 1
             elif status == "queued":
                 queued += 1
-        self.queue_label.setText(f"并发上限 2 个平台任务。当前运行/等待：{running}，排队：{queued}。持续解密会按 FIFO 队列循环重扫。")
+        self.queue_label.setText(
+            f"并发上限 2 个平台任务。当前运行/等待：{running}，排队：{queued}。持续解密会按 FIFO 队列循环重扫。")
 
     def _append_log(self, message: str) -> None:
         self.log_view.appendPlainText(message)
-        self.log_view.verticalScrollBar().setValue(self.log_view.verticalScrollBar().maximum())
+        self.log_view.verticalScrollBar().setValue(
+            self.log_view.verticalScrollBar().maximum())
 
     def _show_message(self, title: str, message: str) -> None:
         QMessageBox.information(self, title, message)
