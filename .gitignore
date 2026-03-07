@@ -18,3 +18,6 @@ release/
 测试/
 _log/
 plugins/
+dist_hotfix/
+bulid_hotfix/
+QKKDecrypt/
