@@ -28,6 +28,7 @@ const pythonExe = resolvePythonExe(rootDir);
 const consoleExeName = "QKKDecrypt.exe";
 const uiAppName = "QKKDecrypt-UI";
 const uiSetupName = "QKKDecrypt-UI-setup";
+const appIcon = path.join(rootDir, "封面", "封面.ico");
 
 function currentBranchName(repoDir) {
   return capture("git", ["branch", "--show-current"], { cwd: repoDir }).trim();
@@ -149,6 +150,7 @@ function compileUiSetup(appDir) {
   if (!isccExe) {
     fail("Inno Setup (ISCC.exe) not found. Install Inno Setup 6 before packaging UI.");
   }
+  ensureFile(appIcon, "ui setup icon");
   const scriptPath = path.join(buildDir, "ui-installer.iss");
   const iss = `
 [Setup]
@@ -167,13 +169,15 @@ Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
+SetupIconFile=${appIcon.replace(/\\/g, "\\\\")}
+UninstallDisplayIcon={app}\\${uiAppName}.exe
 
 [Files]
 Source: "${appDir.replace(/\\/g, "\\\\")}\\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
-Name: "{autoprograms}\\QKKDecrypt UI"; Filename: "{app}\\${uiAppName}.exe"
-Name: "{autodesktop}\\QKKDecrypt UI"; Filename: "{app}\\${uiAppName}.exe"; Tasks: desktopicon
+Name: "{autoprograms}\\QKKDecrypt UI"; Filename: "{app}\\${uiAppName}.exe"; IconFilename: "{app}\\${uiAppName}.exe"
+Name: "{autodesktop}\\QKKDecrypt UI"; Filename: "{app}\\${uiAppName}.exe"; Tasks: desktopicon; IconFilename: "{app}\\${uiAppName}.exe"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional tasks:"

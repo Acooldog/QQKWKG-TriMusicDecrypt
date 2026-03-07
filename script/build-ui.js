@@ -19,6 +19,7 @@ const pythonExe = resolvePythonExe(rootDir);
 const mainPy = path.join(rootDir, "main.py");
 const assetsDir = path.join(rootDir, "assets");
 const kuwoRuntimeDir = path.join(rootDir, "src", "Infrastructure", "platforms", "kuwo", "runtime_m");
+const appIcon = path.join(rootDir, "封面", "封面.ico");
 
 function hasModule(moduleName) {
   const script = [
@@ -51,6 +52,7 @@ ensureFile(path.join(assetsDir, "kudog_native.dll"), "kudog_native.dll");
 ensureFile(path.join(assetsDir, "ffmpeg-win-x86_64-v7.1.exe"), "bundled ffmpeg");
 ensureFile(path.join(kuwoRuntimeDir, "kwm_export_agent.js"), "kwm_export_agent.js");
 ensureFile(path.join(kuwoRuntimeDir, "out", "recovered_signature.json"), "kuwo recovered signature");
+ensureFile(appIcon, "application icon");
 
 ensureModule("PySide6", "PySide6");
 ensureModule("shiboken6", "PySide6");
@@ -121,6 +123,8 @@ const pyinstallerArgs = [
   "--clean",
   "--onedir",
   "--windowed",
+  "--icon",
+  appIcon,
   "--name",
   appName,
   "--contents-directory",
@@ -147,6 +151,8 @@ const pyinstallerArgs = [
   "PySide6.QtWidgets",
   "--add-data",
   `${assetsDir};assets`,
+  "--add-data",
+  `${path.dirname(appIcon)};封面`,
   "--add-data",
   `${kuwoRuntimeDir};src/Infrastructure/platforms/kuwo/runtime_m`,
   mainPy,
