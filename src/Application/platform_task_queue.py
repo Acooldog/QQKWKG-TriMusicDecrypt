@@ -27,7 +27,7 @@ class PlatformTaskState:
     recursive: bool
     settings: dict[str, Any]
     status: str = "idle"
-    message: str = "Idle"
+    message: str = "空闲"
     current_file: str = ""
     current_index: int = 0
     current_total: int = 0
@@ -107,7 +107,7 @@ class PlatformTaskQueue:
     ) -> tuple[bool, str | None]:
         with self._lock:
             current = self._tasks.get(platform_id)
-            if current and current.status in {"queued", "running"}:
+            if current and current.status in {"queued", "running", "waiting", "stopping"}:
                 return False, f"{title} 任务已在运行或排队。"
             task = PlatformTaskState(
                 platform_id=platform_id,
@@ -123,7 +123,7 @@ class PlatformTaskQueue:
                 self._start_locked(task)
             else:
                 task.status = "queued"
-                task.message = "Queued"
+                task.message = "排队中"
                 self._queue.append(platform_id)
                 self._reindex_queue_locked()
                 self._emit_log_locked(f"[queue] {title} queued")
@@ -147,7 +147,7 @@ class PlatformTaskQueue:
                 self._reindex_queue_locked()
                 self._push_state_locked()
                 return True, None
-            if task.status == "running":
+            if task.status in {"running", "waiting"}:
                 task.stop_requested = True
                 task.status = "stopping"
                 task.message = "停止中，当前批次结束后退出"
@@ -171,12 +171,13 @@ class PlatformTaskQueue:
 
     def _reindex_queue_locked(self) -> None:
         for position, platform_id in enumerate(self._queue, start=1):
-            if platform_id in self._tasks:
-                self._tasks[platform_id].queue_position = position
+            task = self._tasks.get(platform_id)
+            if task is not None:
+                task.queue_position = position
 
     def _start_locked(self, task: PlatformTaskState) -> None:
         task.status = "running"
-        task.message = "Task started"
+        task.message = "任务已启动"
         task.queue_position = 0
         task.stop_requested = False
         task.last_updated = time.time()
@@ -237,8 +238,19 @@ class PlatformTaskQueue:
                     self._drain_locked()
                     return
                 if not task.continuous:
-                    task.status = "success" if result_code == 0 else "failed"
-                    task.message = "已完成" if result_code == 0 else "失败"
+                    if result_code == 0:
+                        if task.success_count == 0 and task.skipped_count > 0:
+                            task.status = "skipped"
+                            task.message = f"本轮全部跳过，共 {task.skipped_count} 个文件"
+                        elif task.skipped_count > 0:
+                            task.status = "success"
+                            task.message = f"已完成，成功 {task.success_count}，跳过 {task.skipped_count}"
+                        else:
+                            task.status = "success"
+                            task.message = f"已完成，成功 {task.success_count} 个文件"
+                    else:
+                        task.status = "failed"
+                        task.message = f"失败 {task.failed_count} 个，跳过 {task.skipped_count} 个"
                     self._running.discard(platform_id)
                     self._emit_log_locked(f"[done] {task.title} result_code={result_code}")
                     self._drain_locked()
@@ -247,12 +259,14 @@ class PlatformTaskQueue:
                 task.message = f"持续解密等待 {int(task.loop_interval_sec)} 秒后重扫"
                 self._emit_log_locked(f"[loop] {task.title} waiting {task.loop_interval_sec:.0f}s for next scan")
                 self._push_state_locked()
+
             waited = 0.0
             while waited < task.loop_interval_sec:
                 if self._is_stop_requested(platform_id):
                     break
                 time.sleep(0.1)
                 waited += 0.1
+
             with self._lock:
                 task = self._tasks[platform_id]
                 if task.stop_requested:
@@ -276,12 +290,12 @@ class PlatformTaskQueue:
             if event_name == "batch_started":
                 task.candidate_count = int(payload.get("candidate_count", 0) or 0)
                 task.current_total = task.candidate_count
-                task.message = "Batch started"
+                task.message = "批次已开始"
             elif event_name == "file_started":
                 task.current_file = str(payload.get("input_path", "") or "")
                 task.current_index = int(payload.get("index", 0) or 0)
                 task.current_total = int(payload.get("total", task.current_total) or task.current_total)
-                task.message = pathlib.Path(task.current_file).name if task.current_file else "Processing"
+                task.message = pathlib.Path(task.current_file).name if task.current_file else "处理中"
             elif event_name == "file_finished":
                 result = str(payload.get("result", "") or "")
                 if result == "success":

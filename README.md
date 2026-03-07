@@ -9,7 +9,7 @@
 <div align="center">
 
 ![Python](https://img.shields.io/badge/Python-3.7%2B-blue)
-![License](https://img.shields.io/badge/License-MIT-yellow)
+![License](https://img.shields.io/badge/License-Mixed-yellow)
 ![GitHub stars](https://img.shields.io/github/stars/Acooldog/QQKWKG-TriMusicDecrypt?style=social)
 
 </div>
@@ -200,11 +200,19 @@ npm run package
 
 ## 许可证
 
-本项目代码采用 [MIT 协议](LICENSE)。
+本仓库中**由作者自行编写的源码部分**采用 [MIT 协议](LICENSE)。
 
-### 第三方依赖许可证
-- **PySide6**: [GNU Lesser General Public License v3](https://www.gnu.org/licenses/lgpl-3.0.html)
-- 其他依赖...
+但当前分发包**不是 MIT-only**。原因很直接：
+- `main-ui` 使用 `PySide6 / Qt for Python`，其运行库适用 `LGPLv3 / GPLv3 / 商业许可` 体系
+- 当前内置的 `FFmpeg` 为 GPL 构建，分发时不能简单按“纯 MIT 软件包”对外表述
+- `QQ 音乐` 解密模型思路参考了 [`qqmusic_decrypt`](https://github.com/luyikk/qqmusic_decrypt)，该部分应按来源项目的许可证和归属情况单独审视，不能默认并入本项目的 MIT 再授权边界
+
+更准确的工程表述是：
+- **你的自有源码可以是 MIT**
+- **当前分发包不是 MIT-only**
+
+详细第三方许可证与风险点见：
+- [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)
 
 ## 重要说明
-本项目动态链接 PySide6 库。用户可以自由替换 PySide6 的共享库版本。
+本项目 `main-ui` 分支动态链接 `PySide6 / Qt` 运行库。用户可以自由替换对应共享库版本。

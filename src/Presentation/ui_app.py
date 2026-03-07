@@ -309,10 +309,11 @@ class PlatformCard(QFrame):
         status_layout.setSpacing(6)
         self.status_label = QLabel("状态：空闲")
         self.message_label = QLabel("等待任务")
+        self.count_label = QLabel("统计：成功 0，跳过 0，失败 0")
         self.progress_label = QLabel("进度：0 / 0")
         self.file_label = QLabel("当前文件：无")
         self.timing_label = QLabel("热点：无")
-        for widget in (self.status_label, self.message_label, self.progress_label, self.file_label, self.timing_label):
+        for widget in (self.status_label, self.message_label, self.count_label, self.progress_label, self.file_label, self.timing_label):
             widget.setWordWrap(True)
             status_layout.addWidget(widget)
         root.addWidget(status_box)
@@ -371,10 +372,18 @@ class PlatformCard(QFrame):
             "stopping": "停止中",
             "stopped": "已停止",
             "success": "已完成",
+            "skipped": "已跳过",
             "failed": "失败",
         }
         self.status_label.setText(f"状态：{mapping.get(status, status)}")
         self.message_label.setText(f"说明：{payload.get('message', '无')}")
+        self.count_label.setText(
+            "统计：成功 {success}，跳过 {skipped}，失败 {failed}".format(
+                success=int(payload.get("success_count", 0) or 0),
+                skipped=int(payload.get("skipped_count", 0) or 0),
+                failed=int(payload.get("failed_count", 0) or 0),
+            )
+        )
         self.progress_label.setText(f"进度：{payload.get('current_index', 0)} / {payload.get('current_total', 0)}")
         current_file = pathlib.Path(str(payload.get("current_file", "") or "")).name or "无"
         self.file_label.setText(f"当前文件：{current_file}")
