@@ -1,0 +1,212 @@
+{
+  "timestamp": "2026-03-06T03:14:48.838917+08:00",
+  "process": "kwmusic.exe",
+  "pid": 73508,
+  "duration_sec": 5,
+  "total_calls": 1753,
+  "unique_functions": 48,
+  "top_functions": [
+    {
+      "name": "KwMusicDLL.dll!KwMainEntryProc",
+      "count": 590
+    },
+    {
+      "name": "KwLib.dll!KwLib::CSharedMemMgr::operator=",
+      "count": 203
+    },
+    {
+      "name": "KwLib.dll!0x10001be0",
+      "count": 203
+    },
+    {
+      "name": "KwLib.dll!0x100023a0",
+      "count": 203
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1be33f20",
+      "count": 69
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1be33c90",
+      "count": 39
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1be879e0",
+      "count": 31
+    },
+    {
+      "name": "kwmusic.exe!0x2b8ea0",
+      "count": 31
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1bef9040",
+      "count": 31
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1bf04960",
+      "count": 31
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1bf07c10",
+      "count": 26
+    },
+    {
+      "name": "kwmusic.exe!0x2b8a10",
+      "count": 25
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1bf022a0",
+      "count": 25
+    },
+    {
+      "name": "kwmusic.exe!0x2ce5ca",
+      "count": 20
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1bebbcd4",
+      "count": 18
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1bebba8e",
+      "count": 18
+    },
+    {
+      "name": "kwmusic.exe!0x2b9f50",
+      "count": 14
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1bef9020",
+      "count": 14
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1bf102a0",
+      "count": 14
+    },
+    {
+      "name": "kwmusic.exe!0x2ce816",
+      "count": 14
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1be34020",
+      "count": 12
+    },
+    {
+      "name": "KwLib.dll!KwLib::Thread::CAutoCrititalSection::CAutoCrititalSection",
+      "count": 9
+    },
+    {
+      "name": "KwLib.dll!KwLib::StringUtility::Str2Lower",
+      "count": 9
+    },
+    {
+      "name": "KwLib.dll!KwLib::Thread::CAutoCrititalSection::~CAutoCrititalSection",
+      "count": 9
+    },
+    {
+      "name": "KwLib.dll!0x10001ca0",
+      "count": 8
+    },
+    {
+      "name": "KwLib.dll!KwLib::Json::FastWriter::write",
+      "count": 8
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1be89ea0",
+      "count": 6
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1be89e90",
+      "count": 6
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1be89e50",
+      "count": 6
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1bebb938",
+      "count": 6
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1bebb7e8",
+      "count": 6
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1bebbf3e",
+      "count": 6
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1bebbf1a",
+      "count": 6
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1bee1d70",
+      "count": 6
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1bee1e60",
+      "count": 6
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1be353e0",
+      "count": 5
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1be650c0",
+      "count": 3
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1bee1fa2",
+      "count": 3
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1be658a0",
+      "count": 2
+    },
+    {
+      "name": "KwLib.dll!KwLib::KwLog::KwLogMutex::Lock",
+      "count": 2
+    },
+    {
+      "name": "KwLib.dll!KwLib::KwLog::KwLogMutex::Unlock",
+      "count": 2
+    },
+    {
+      "name": "KwLib.dll!KwLib::Json::StyledStreamWriter::`default constructor closure'",
+      "count": 2
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1be65a60",
+      "count": 1
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1befff50",
+      "count": 1
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1be58eb0",
+      "count": 1
+    },
+    {
+      "name": "KwMusicDLL.dll!0x1bf131c0",
+      "count": 1
+    },
+    {
+      "name": "KwLib.dll!KwLib::UserId::GetUserID",
+      "count": 1
+    },
+    {
+      "name": "KwLib.dll!KwLib::UserId::GetInstallSRC",
+      "count": 1
+    }
+  ],
+  "stats_snapshot": {
+    "totalCalls": 351670,
+    "tracedCalls": 1753,
+    "droppedEvents": 0,
+    "parseErrors": 0,
+    "followErrors": 0,
+    "exportSamples": 16,
+    "uniqueFunctions": 48,
+    "followedThreads": 90
+  }
+}

@@ -1,0 +1,200 @@
+{
+  "timestamp": "2026-03-05T23:42:29.255602+08:00",
+  "process_name": "kwmusic.exe",
+  "pid": 70788,
+  "music_dir": "C:\\Users\\01080\\Documents\\Frontier Developments\\Planet Coaster\\UserMusic\\MusicPack",
+  "path_regex": "((\\\\\\\\\\?\\\\)?C:\\\\Users\\\\01080\\\\Documents\\\\Frontier\\ Developments\\\\Planet\\ Coaster\\\\UserMusic\\\\MusicPack|MusicPack).*\\.kwm$",
+  "duration_sec": 120,
+  "kwm_files": [
+    "C:\\Users\\01080\\Documents\\Frontier Developments\\Planet Coaster\\UserMusic\\MusicPack\\林栖-最真的梦 (女生深情版).kwm",
+    "C:\\Users\\01080\\Documents\\Frontier Developments\\Planet Coaster\\UserMusic\\MusicPack\\陈瑞-情罪.kwm",
+    "C:\\Users\\01080\\Documents\\Frontier Developments\\Planet Coaster\\UserMusic\\MusicPack\\일레인 (Elaine)-Search.kwm",
+    "C:\\Users\\01080\\Documents\\Frontier Developments\\Planet Coaster\\UserMusic\\MusicPack\\장범준-손 닿으면.kwm"
+  ],
+  "stats": {
+    "ioEvents": 7,
+    "sampledEvents": 2,
+    "droppedBySampler": 5,
+    "frameCount": 14,
+    "moduleCount": 2,
+    "config": {
+      "sampleRate": 0.35,
+      "backtracer": "fuzzy",
+      "reportEveryEvents": 80,
+      "stackFrames": 18
+    }
+  },
+  "top_modules": [
+    {
+      "name": "kwmusic.exe",
+      "count": 26
+    },
+    {
+      "name": "?",
+      "count": 6
+    }
+  ],
+  "top_frames": [
+    {
+      "name": "kwmusic.exe!_ValidateRead",
+      "count": 4
+    },
+    {
+      "name": "kwmusic.exe!KwLib::CCue::operator=",
+      "count": 4
+    },
+    {
+      "name": "?!0x100",
+      "count": 2
+    },
+    {
+      "name": "kwmusic.exe!fclose",
+      "count": 2
+    },
+    {
+      "name": "kwmusic.exe!read",
+      "count": 2
+    },
+    {
+      "name": "kwmusic.exe!Music_ReadInfoHead",
+      "count": 2
+    },
+    {
+      "name": "kwmusic.exe!Music_CheckIsEncrypted",
+      "count": 2
+    },
+    {
+      "name": "?!0x10002282",
+      "count": 2
+    },
+    {
+      "name": "kwmusic.exe!Music_CheckIsEncryptedA",
+      "count": 2
+    },
+    {
+      "name": "?!0xe9308d",
+      "count": 2
+    },
+    {
+      "name": "kwmusic.exe!CLocalResource::CheckIsEncrypted",
+      "count": 2
+    },
+    {
+      "name": "kwmusic.exe!KwDllInit",
+      "count": 2
+    },
+    {
+      "name": "kwmusic.exe!KiUserCallbackDispatcher",
+      "count": 2
+    },
+    {
+      "name": "kwmusic.exe!NtUserMessageCall",
+      "count": 2
+    }
+  ],
+  "candidates": [
+    {
+      "score": 34,
+      "count": 4,
+      "frame": "kwmusic.exe!_ValidateRead",
+      "module": "kwmusic.exe",
+      "reason": "high-frequency frame in core module"
+    },
+    {
+      "score": 32,
+      "count": 2,
+      "frame": "kwmusic.exe!Music_ReadInfoHead",
+      "module": "kwmusic.exe",
+      "reason": "high-frequency frame in core module"
+    },
+    {
+      "score": 32,
+      "count": 2,
+      "frame": "kwmusic.exe!read",
+      "module": "kwmusic.exe",
+      "reason": "high-frequency frame in core module"
+    },
+    {
+      "score": 4,
+      "count": 4,
+      "frame": "kwmusic.exe!KwLib::CCue::operator=",
+      "module": "kwmusic.exe",
+      "reason": "high-frequency frame in core module"
+    },
+    {
+      "score": 2,
+      "count": 2,
+      "frame": "kwmusic.exe!CLocalResource::CheckIsEncrypted",
+      "module": "kwmusic.exe",
+      "reason": "high-frequency frame in core module"
+    },
+    {
+      "score": 2,
+      "count": 2,
+      "frame": "kwmusic.exe!KiUserCallbackDispatcher",
+      "module": "kwmusic.exe",
+      "reason": "high-frequency frame in core module"
+    },
+    {
+      "score": 2,
+      "count": 2,
+      "frame": "kwmusic.exe!KwDllInit",
+      "module": "kwmusic.exe",
+      "reason": "high-frequency frame in core module"
+    },
+    {
+      "score": 2,
+      "count": 2,
+      "frame": "kwmusic.exe!Music_CheckIsEncrypted",
+      "module": "kwmusic.exe",
+      "reason": "high-frequency frame in core module"
+    },
+    {
+      "score": 2,
+      "count": 2,
+      "frame": "kwmusic.exe!Music_CheckIsEncryptedA",
+      "module": "kwmusic.exe",
+      "reason": "high-frequency frame in core module"
+    },
+    {
+      "score": 2,
+      "count": 2,
+      "frame": "kwmusic.exe!NtUserMessageCall",
+      "module": "kwmusic.exe",
+      "reason": "high-frequency frame in core module"
+    },
+    {
+      "score": 2,
+      "count": 2,
+      "frame": "kwmusic.exe!fclose",
+      "module": "kwmusic.exe",
+      "reason": "high-frequency frame in core module"
+    }
+  ],
+  "messages_preview": [],
+  "stop_reason": null,
+  "guard_summary": {
+    "max_restart_total": 3,
+    "max_consecutive_closes": 3,
+    "restart_attempts": 0,
+    "consecutive_closes": 0,
+    "total_closes": 0,
+    "current_pid": 70788,
+    "current_start_time": "existing_process",
+    "stop_reason": null,
+    "limit_reason": null,
+    "events": [
+      {
+        "time": "2026-03-05T23:42:29.288806+08:00",
+        "event": "observe_start",
+        "pid": 70788,
+        "start_time": "existing_process"
+      },
+      {
+        "time": "2026-03-05T23:44:29.353017+08:00",
+        "event": "mark_stable",
+        "reason": "capture_completed_alive"
+      }
+    ]
+  }
+}

@@ -1,0 +1,20 @@
+# 忽略文件
+.idea/
+.vscode/
+__pycache__/
+.venv
+output
+node_modules
+js
+
+*.pyc
+dist/
+build/
+*.exe
+*.spec
+QQMusic-mflac-to-flac.spec
+horizon-repair-tool.spec
+release/
+测试/
+_log/
+plugins/

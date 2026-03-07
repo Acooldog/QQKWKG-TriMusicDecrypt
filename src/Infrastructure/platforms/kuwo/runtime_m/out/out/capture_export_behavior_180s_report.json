@@ -1,0 +1,48 @@
+{
+  "timestamp": "2026-03-06T03:14:48.838917+08:00",
+  "target_process": "kwmusic.exe",
+  "pid": 73508,
+  "duration_sec": 5,
+  "result_code": 0,
+  "result_reason": "capture_ok",
+  "files": {
+    "trace_jsonl": "O:\\A_python\\A_QQd\\kuwo\\m\\out\\call_trace_180s.jsonl",
+    "summary_json": "O:\\A_python\\A_QQd\\kuwo\\m\\out\\call_summary_180s.json",
+    "signature_json": "O:\\A_python\\A_QQd\\kuwo\\m\\out\\export_signature_180s.json"
+  },
+  "event_total": 1753,
+  "signature_sample_count": 16,
+  "stats_snapshot": {
+    "totalCalls": 351670,
+    "tracedCalls": 1753,
+    "droppedEvents": 0,
+    "parseErrors": 0,
+    "followErrors": 0,
+    "exportSamples": 16,
+    "uniqueFunctions": 48,
+    "followedThreads": 90
+  },
+  "guard_summary": {
+    "max_restart_total": 3,
+    "max_consecutive_closes": 3,
+    "restart_attempts": 0,
+    "consecutive_closes": 0,
+    "total_closes": 0,
+    "current_pid": 73508,
+    "current_start_time": "existing_process",
+    "stop_reason": null,
+    "limit_reason": null,
+    "events": [
+      {
+        "time": "2026-03-06T03:14:48.875973+08:00",
+        "event": "observe_start",
+        "pid": 73508,
+        "start_time": "existing_process"
+      }
+    ]
+  }
+}
+
+    ]
+  }
+}

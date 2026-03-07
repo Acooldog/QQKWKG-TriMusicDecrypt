@@ -1,0 +1,307 @@
+{
+  "timestamp": "2026-03-06T03:00:18.636658+08:00",
+  "schema_version": "v2",
+  "result_code": 0,
+  "result_reason": "ok",
+  "primary_signature": {
+    "symbol": "?Music_ExportFileA@@YAHPBDAAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@K@Z",
+    "abi": "cdecl",
+    "arg_layout": [
+      {
+        "index": 1,
+        "name": "input_path",
+        "kind": "char_ptr"
+      },
+      {
+        "index": 2,
+        "name": "output_path",
+        "kind": "std_string_ref_msvc"
+      },
+      {
+        "index": 3,
+        "name": "flags",
+        "kind": "u32"
+      }
+    ],
+    "flags_hint": 4,
+    "confidence": "high",
+    "evidence": {
+      "sample_count": 8,
+      "flags_histogram_top": [
+        [
+          4,
+          8
+        ]
+      ]
+    }
+  },
+  "signature_candidates": [
+    {
+      "symbol": "?Music_ExportFileA@@YAHPBDAAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@K@Z",
+      "abi": "cdecl",
+      "arg_layout": [
+        {
+          "index": 1,
+          "name": "input_path",
+          "kind": "char_ptr"
+        },
+        {
+          "index": 2,
+          "name": "output_path",
+          "kind": "std_string_ref_msvc"
+        },
+        {
+          "index": 3,
+          "name": "flags",
+          "kind": "u32"
+        }
+      ],
+      "flags_hint": 4,
+      "confidence": "high",
+      "evidence": {
+        "sample_count": 8,
+        "flags_histogram_top": [
+          [
+            4,
+            8
+          ]
+        ]
+      }
+    },
+    {
+      "symbol": "?Music_ExportFile@@YAHPB_WAAV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@K@Z",
+      "abi": "cdecl",
+      "arg_layout": [
+        {
+          "index": 1,
+          "name": "input_path",
+          "kind": "wchar_ptr"
+        },
+        {
+          "index": 2,
+          "name": "output_path",
+          "kind": "std_wstring_ref_msvc"
+        },
+        {
+          "index": 3,
+          "name": "flags",
+          "kind": "u32"
+        }
+      ],
+      "flags_hint": 4,
+      "confidence": "high",
+      "evidence": {
+        "sample_count": 8,
+        "flags_histogram_top": [
+          [
+            4,
+            8
+          ]
+        ]
+      }
+    },
+    {
+      "symbol": "?Music_Export@@YAHPB_WAAV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@K@Z",
+      "abi": "cdecl",
+      "arg_layout": [
+        {
+          "index": 1,
+          "name": "input_path",
+          "kind": "wchar_ptr"
+        },
+        {
+          "index": 2,
+          "name": "output_path",
+          "kind": "std_wstring_ref_msvc"
+        },
+        {
+          "index": 3,
+          "name": "flags",
+          "kind": "u32"
+        }
+      ],
+      "flags_hint": 4,
+      "confidence": "high",
+      "evidence": {
+        "sample_count": 8,
+        "flags_histogram_top": [
+          [
+            4,
+            8
+          ]
+        ]
+      }
+    },
+    {
+      "symbol": "?Music_CheckIsEncryptedA@@YA_NPBDW4CheckEncryptAct@@@Z",
+      "abi": "cdecl",
+      "arg_layout": [
+        {
+          "index": 1,
+          "name": "input_path",
+          "kind": "wchar_ptr"
+        },
+        {
+          "index": 2,
+          "name": "output_path",
+          "kind": "std_wstring_ref_msvc"
+        },
+        {
+          "index": 3,
+          "name": "flags",
+          "kind": "u32"
+        }
+      ],
+      "flags_hint": 1694516,
+      "confidence": "high",
+      "evidence": {
+        "sample_count": 33,
+        "flags_histogram_top": [
+          [
+            1694516,
+            16
+          ],
+          [
+            1693140,
+            8
+          ],
+          [
+            1696672,
+            8
+          ],
+          [
+            1698272,
+            1
+          ]
+        ]
+      }
+    },
+    {
+      "symbol": "?Music_CheckIsEncrypted@@YA_NPB_WW4CheckEncryptAct@@@Z",
+      "abi": "cdecl",
+      "arg_layout": [
+        {
+          "index": 1,
+          "name": "input_path",
+          "kind": "wchar_ptr"
+        },
+        {
+          "index": 2,
+          "name": "output_path",
+          "kind": "std_wstring_ref_msvc"
+        },
+        {
+          "index": 3,
+          "name": "flags",
+          "kind": "u32"
+        }
+      ],
+      "flags_hint": 49983472,
+      "confidence": "high",
+      "evidence": {
+        "sample_count": 24,
+        "flags_histogram_top": [
+          [
+            49983472,
+            2
+          ],
+          [
+            49983280,
+            2
+          ],
+          [
+            628659392,
+            1
+          ],
+          [
+            628659504,
+            1
+          ],
+          [
+            629000496,
+            1
+          ],
+          [
+            188762128,
+            1
+          ],
+          [
+            187747624,
+            1
+          ],
+          [
+            628997896,
+            1
+          ]
+        ]
+      }
+    },
+    {
+      "symbol": "?Music_ReadInfoHead@@YA_NPB_WAAUKFInfoHead@@@Z",
+      "abi": "cdecl",
+      "arg_layout": [
+        {
+          "index": 1,
+          "name": "input_path",
+          "kind": "wchar_ptr"
+        },
+        {
+          "index": 2,
+          "name": "output_path",
+          "kind": "std_wstring_ref_msvc"
+        },
+        {
+          "index": 3,
+          "name": "flags",
+          "kind": "u32"
+        }
+      ],
+      "flags_hint": 8778816,
+      "confidence": "high",
+      "evidence": {
+        "sample_count": 24,
+        "flags_histogram_top": [
+          [
+            8778816,
+            24
+          ]
+        ]
+      }
+    }
+  ],
+  "symbol": "?Music_ExportFileA@@YAHPBDAAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@K@Z",
+  "abi": "cdecl",
+  "arg_layout": [
+    {
+      "index": 1,
+      "name": "input_path",
+      "kind": "char_ptr"
+    },
+    {
+      "index": 2,
+      "name": "output_path",
+      "kind": "std_string_ref_msvc"
+    },
+    {
+      "index": 3,
+      "name": "flags",
+      "kind": "u32"
+    }
+  ],
+  "flags_hint": 4,
+  "confidence": "high",
+  "evidence": {
+    "sample_count_total": 105,
+    "sample_count_selected": 8,
+    "symbols_seen": [
+      "?Music_CheckIsEncrypted@@YA_NPB_WW4CheckEncryptAct@@@Z",
+      "?Music_CheckIsEncryptedA@@YA_NPBDW4CheckEncryptAct@@@Z",
+      "?Music_Export@@YAHPB_WAAV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@K@Z",
+      "?Music_ExportFile@@YAHPB_WAAV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@K@Z",
+      "?Music_ExportFileA@@YAHPBDAAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@K@Z",
+      "?Music_ReadInfoHead@@YA_NPB_WAAUKFInfoHead@@@Z"
+    ],
+    "summary_total_calls": 478448,
+    "summary_unique_functions": 226
+  }
+}

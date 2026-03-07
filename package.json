@@ -1,0 +1,10 @@
+﻿{
+  "name": "qkkdecrypt",
+  "version": "1.0.0",
+  "private": true,
+  "description": "QKKDecrypt packaging entry",
+  "scripts": {
+    "package": "node .\\script\\package.js",
+    "build:native": "powershell -ExecutionPolicy Bypass -File .\\native\\build_native.ps1"
+  }
+}
