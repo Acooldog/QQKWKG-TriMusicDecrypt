@@ -11,11 +11,11 @@ from src.Infrastructure.transcoder import SUPPORTED_TARGET_FORMATS, normalize_ta
 CONFIG_NAMESPACE = "decrypt_cli"
 PROJECT_NAME_EN = "QKKDecrypt"
 PROJECT_NAME_ZH = "QQ酷狗酷我音乐解密工具"
-PROJECT_ADDRESS = r"O:\A_python\A_QKKd"
+PROJECT_ADDRESS = "https://github.com/Acooldog/QQKWKG-TriMusicDecrypt"
 PROJECT_QQ = "2622138410"
-QQMUSIC_ATTRIBUTION = "QQ音乐解密模型思路参考: https://github.com/luyikk/qqmusic_decrypt"
-LEGAL_NOTICE = "仅供学习交流使用，禁止商用，禁止倒卖；倒卖者将举报平台并持续追责。"
-FLET_NOTE = "main-ui 分支采用 Flet，本地 Python 后端与 Flutter 前端通过本地桌面会话协同运行。"
+QQMUSIC_ATTRIBUTION = "QQ 音乐解密模型思路参考项目：qqmusic_decrypt（https://github.com/luyikk/qqmusic_decrypt）"
+LEGAL_NOTICE = "其他模型为自主逆向学习实现，仅供学习交流使用；禁止商用，禁止倒卖，倒卖者将举报平台并持续追责。"
+FLET_NOTE = "main-ui 分支采用 PySide6。PySide6 基于 Qt for Python，桌面界面由本地 Qt 窗口和 Python 业务逻辑直接驱动。"
 DEFAULT_KUGOU_INPUT = pathlib.Path(r"O:\KuGou\KugouMusic")
 DEFAULT_KUWO_INPUT = pathlib.Path(r"C:\Users\01080\Documents\Frontier Developments\Planet Coaster\UserMusic\MusicPack")
 DEFAULT_QQ_INPUT = pathlib.Path("")
@@ -175,3 +175,4 @@ def validate_target_format(value: str) -> str:
 
 def supported_transcode_formats() -> list[str]:
     return sorted(SUPPORTED_TARGET_FORMATS)
+

@@ -1,12 +1,46 @@
-﻿# QKKDecrypt
+﻿<div align="center">
 
-`QKKDecrypt` is the unified tri-platform project for:
+# QKKDecrypt - QQ酷狗酷我音乐解密工具
+
+</div>
+
+
+
+<div align="center">
+
+![Python](https://img.shields.io/badge/Python-3.7%2B-blue)
+![License](https://img.shields.io/badge/License-MIT-yellow)
+![GitHub stars](https://img.shields.io/github/stars/Acooldog/QQKWKG-TriMusicDecrypt?style=social)
+
+</div>
+
+<div align="center">
+
+**一款可以解密QQ音乐、酷我音乐、酷狗音乐的开源免费工具**<br>
+**仅供学习交流使用，尊重正版，从你我做起**<br>
+**如果对你有帮助，可以点一下star吗？万分感谢！！！**<br>
+**禁止商用、禁止倒卖**
+
+</div>
+
+<div align="center">
+
+<img src="./封面/封面.png" width="50%" height = "50%" align="center">
+
+</div>
+
+---
+# `QKKDecrypt` 介绍
 - 中文名: `QQ酷狗酷我音乐解密工具`
 - 英文名: `QKKDecrypt`
-- 项目地址: `O:\A_python\A_QKKd`
-- QQ: `2622138410`
+- 项目地址: `https://github.com/Acooldog/QQKWKG-TriMusicDecrypt`
+  
+main分支为console版本
+main-ui分支为UI版本，UI框架为pyside6
 
-仅供学习交流使用，禁止商用，禁止倒卖；倒卖者将举报平台并持续追责。
+qq音乐解密模型思路是[qqmusic_decrypt](https://github.com/luyikk/qqmusic_decrypt)项目提供的<br>
+其他的解密模型均自主抱着学习以及尊重正版的名义逆向学习<br>
+仅供学习交流使用，禁止商用！禁止倒卖！倒卖者将举报平台并持续追责！！！
 
 ## Branches
 
@@ -16,7 +50,7 @@
   - 三层架构: `Presentation / Application / Infrastructure`
   - 打包形态: `onefile`
 - `main-ui`
-  - Flet 桌面 UI 版本
+  - PySide6 桌面 UI 版本
   - Win10 风格
   - 打包形态: `onedir + _internal + setup`
 
@@ -39,7 +73,7 @@
 - `src/Presentation`
   - CLI
   - 控制台交互
-  - `main-ui` 分支中的 Flet UI
+  - `main-ui` 分支中的 PySide6 UI
 - `src/Application`
   - 平台调度
   - 批处理编排
@@ -73,7 +107,7 @@ O:\A_python\A_QKKd\.venv\Scripts\python.exe O:\A_python\A_QKKd\main.py
 ```
 
 交互模式会:
-- 显示项目路径、QQ 和法律声明
+- 显示项目地址、QQ 和法律声明
 - 询问是否直接使用配置
 - 让用户选择平台
 - 对 `QQ/酷我` 进行阻断式进程检测
@@ -145,15 +179,15 @@ npm run package
 - 内部:
   - 其他非自动生成代码与资源全部打入 onefile 或 `_internal`
 
-## Flet Note
+## PySide6 Note
 
-`main-ui` 分支采用 `Flet`。Flet 的桌面模式由本地 Python 后端与 Flutter 前端协同运行，通过本地桌面会话和通信通道同步 UI 状态。UI 分支只替换 `Presentation` 层，不改业务核心层。
+`main-ui` 分支采用 `PySide6`。PySide6 基于 Qt for Python，桌面界面由本地 Qt 窗口和 Python 业务逻辑直接驱动。UI 分支只替换 `Presentation` 层，不改业务核心层。
 
 ## Attribution
 
-- `QQ音乐` 解密模型思路参考项目:
+- `QQ 音乐` 解密模型思路参考项目：
   - [`qqmusic_decrypt`](https://github.com/luyikk/qqmusic_decrypt)
-- 其他平台模型为自主逆向学习实现，基于学习交流和尊重正版的目的整理。
+- 其他平台模型均为自主逆向学习实现，基于学习交流与尊重正版的目的整理。
 
 ## Compliance
 
@@ -163,3 +197,14 @@ npm run package
 - 禁止商用
 - 禁止倒卖
 - 倒卖者将举报平台并持续追责
+
+## 许可证
+
+本项目代码采用 [MIT 协议](LICENSE)。
+
+### 第三方依赖许可证
+- **PySide6**: [GNU Lesser General Public License v3](https://www.gnu.org/licenses/lgpl-3.0.html)
+- 其他依赖...
+
+## 重要说明
+本项目动态链接 PySide6 库。用户可以自由替换 PySide6 的共享库版本。

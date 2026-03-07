@@ -37,6 +37,9 @@ class PlatformTaskState:
     failed_count: int = 0
     candidate_count: int = 0
     result_code: int | None = None
+    continuous: bool = False
+    stop_requested: bool = False
+    loop_interval_sec: float = 3.0
     batch_report_json: str = ""
     batch_report_txt: str = ""
     timing_hotspot: dict[str, Any] = field(default_factory=dict)
@@ -61,6 +64,8 @@ class PlatformTaskState:
             "failed_count": self.failed_count,
             "candidate_count": self.candidate_count,
             "result_code": self.result_code,
+            "continuous": self.continuous,
+            "stop_requested": self.stop_requested,
             "batch_report_json": self.batch_report_json,
             "batch_report_txt": self.batch_report_txt,
             "timing_hotspot": dict(self.timing_hotspot),
@@ -98,11 +103,12 @@ class PlatformTaskQueue:
         output_dir: pathlib.Path,
         recursive: bool,
         settings: dict[str, Any],
+        continuous: bool = False,
     ) -> tuple[bool, str | None]:
         with self._lock:
             current = self._tasks.get(platform_id)
             if current and current.status in {"queued", "running"}:
-                return False, f"{title} task is already running or queued."
+                return False, f"{title} 任务已在运行或排队。"
             task = PlatformTaskState(
                 platform_id=platform_id,
                 title=title,
@@ -110,6 +116,7 @@ class PlatformTaskQueue:
                 output_dir=str(output_dir),
                 recursive=recursive,
                 settings=dict(settings),
+                continuous=bool(continuous),
             )
             self._tasks[platform_id] = task
             if len(self._running) < self._max_running:
@@ -122,6 +129,35 @@ class PlatformTaskQueue:
                 self._emit_log_locked(f"[queue] {title} queued")
                 self._push_state_locked()
             return True, None
+
+    def stop(self, platform_id: str) -> tuple[bool, str | None]:
+        with self._lock:
+            task = self._tasks.get(platform_id)
+            if task is None:
+                return False, "未找到对应平台任务。"
+            if task.status == "queued":
+                task.stop_requested = True
+                task.status = "stopped"
+                task.message = "已停止（未开始）"
+                try:
+                    self._queue.remove(platform_id)
+                except ValueError:
+                    pass
+                self._emit_log_locked(f"[stop] {task.title} stopped before start")
+                self._reindex_queue_locked()
+                self._push_state_locked()
+                return True, None
+            if task.status == "running":
+                task.stop_requested = True
+                task.status = "stopping"
+                task.message = "停止中，当前批次结束后退出"
+                task.last_updated = time.time()
+                self._emit_log_locked(f"[stop] {task.title} stopping after current batch")
+                self._push_state_locked()
+                return True, None
+            if task.status in {"stopping", "stopped"}:
+                return False, "该平台任务已经在停止或已停止。"
+            return False, "当前平台没有正在运行的任务。"
 
     def snapshot(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -142,6 +178,7 @@ class PlatformTaskQueue:
         task.status = "running"
         task.message = "Task started"
         task.queue_position = 0
+        task.stop_requested = False
         task.last_updated = time.time()
         self._running.add(task.platform_id)
         self._emit_log_locked(f"[start] {task.title} started")
@@ -159,40 +196,77 @@ class PlatformTaskQueue:
         self._push_state_locked()
 
     def _run_task(self, platform_id: str) -> None:
-        task = self._tasks[platform_id]
         adapter = build_platform_adapter(platform_id)
-        batch_config = BatchRunConfig(
-            platform_id=platform_id,
-            input_path=pathlib.Path(task.input_path),
-            output_dir=pathlib.Path(task.output_dir),
-            recursive=task.recursive,
-            collision_policy="suffix",
-            settings=dict(task.settings),
-            interactive=True,
-            collision_resolver=self._collision_resolver,
-            event_sink=lambda event_name, payload: self._handle_event(platform_id, event_name, payload),
-        )
-        try:
-            result_code = run_batch(batch_config, adapter)
-        except Exception as exc:
-            with self._lock:
-                task.status = "failed"
-                task.message = str(exc)
-                task.result_code = 2
-                task.last_updated = time.time()
-                self._running.discard(platform_id)
-                self._emit_log_locked(f"[failed] {task.title}: {exc}")
-                self._drain_locked()
-            return
+        while True:
+            task = self._tasks[platform_id]
+            batch_config = BatchRunConfig(
+                platform_id=platform_id,
+                input_path=pathlib.Path(task.input_path),
+                output_dir=pathlib.Path(task.output_dir),
+                recursive=task.recursive,
+                collision_policy="suffix",
+                settings=dict(task.settings),
+                interactive=True,
+                collision_resolver=self._collision_resolver,
+                event_sink=lambda event_name, payload: self._handle_event(platform_id, event_name, payload),
+                stop_requested=lambda: self._is_stop_requested(platform_id),
+            )
+            try:
+                result_code = run_batch(batch_config, adapter)
+            except Exception as exc:
+                with self._lock:
+                    task = self._tasks[platform_id]
+                    task.status = "failed"
+                    task.message = str(exc)
+                    task.result_code = 2
+                    task.last_updated = time.time()
+                    self._running.discard(platform_id)
+                    self._emit_log_locked(f"[failed] {task.title}: {exc}")
+                    self._drain_locked()
+                return
 
-        with self._lock:
-            task.result_code = result_code
-            task.status = "success" if result_code == 0 else "failed"
-            task.message = "Completed" if result_code == 0 else "Failed"
-            task.last_updated = time.time()
-            self._running.discard(platform_id)
-            self._emit_log_locked(f"[done] {task.title} result_code={result_code}")
-            self._drain_locked()
+            with self._lock:
+                task = self._tasks[platform_id]
+                task.result_code = result_code
+                task.last_updated = time.time()
+                if result_code == 3 or task.stop_requested:
+                    task.status = "stopped"
+                    task.message = "已停止"
+                    self._running.discard(platform_id)
+                    self._emit_log_locked(f"[done] {task.title} stopped")
+                    self._drain_locked()
+                    return
+                if not task.continuous:
+                    task.status = "success" if result_code == 0 else "failed"
+                    task.message = "已完成" if result_code == 0 else "失败"
+                    self._running.discard(platform_id)
+                    self._emit_log_locked(f"[done] {task.title} result_code={result_code}")
+                    self._drain_locked()
+                    return
+                task.status = "waiting"
+                task.message = f"持续解密等待 {int(task.loop_interval_sec)} 秒后重扫"
+                self._emit_log_locked(f"[loop] {task.title} waiting {task.loop_interval_sec:.0f}s for next scan")
+                self._push_state_locked()
+            waited = 0.0
+            while waited < task.loop_interval_sec:
+                if self._is_stop_requested(platform_id):
+                    break
+                time.sleep(0.1)
+                waited += 0.1
+            with self._lock:
+                task = self._tasks[platform_id]
+                if task.stop_requested:
+                    task.status = "stopped"
+                    task.message = "已停止"
+                    task.last_updated = time.time()
+                    self._running.discard(platform_id)
+                    self._emit_log_locked(f"[done] {task.title} stopped")
+                    self._drain_locked()
+                    return
+                task.status = "running"
+                task.message = "持续解密重新扫描中"
+                task.last_updated = time.time()
+                self._push_state_locked()
 
     def _handle_event(self, platform_id: str, event_name: str, payload: dict[str, Any]) -> None:
         with self._lock:
@@ -226,3 +300,8 @@ class PlatformTaskQueue:
                 task.timing_hotspot = dict(payload.get("timing_hotspot_stage", {}) or {})
             task.last_updated = time.time()
             self._push_state_locked()
+
+    def _is_stop_requested(self, platform_id: str) -> bool:
+        with self._lock:
+            task = self._tasks.get(platform_id)
+            return bool(task and task.stop_requested)

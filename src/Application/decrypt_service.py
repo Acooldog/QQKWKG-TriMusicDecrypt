@@ -134,6 +134,15 @@ def _emit_event(config: BatchRunConfig, event_name: str, payload: dict[str, Any]
         pass
 
 
+def _stop_requested(config: BatchRunConfig) -> bool:
+    if config.stop_requested is None:
+        return False
+    try:
+        return bool(config.stop_requested())
+    except Exception:
+        return False
+
+
 def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
     paths = RuntimePaths.discover()
     paths.ensure_runtime_dirs()
@@ -169,8 +178,13 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
     success_count = 0
     skipped_count = 0
     failed_count = 0
+    stopped = False
 
     for index, file_path in enumerate(files, start=1):
+        if _stop_requested(config):
+            stopped = True
+            logger.info("batch_stop_requested: platform=%s before_file=%d", config.platform_id, index)
+            break
         file_started = time.perf_counter()
         file_timing = _new_timing()
         scan_started = time.perf_counter()
@@ -330,6 +344,10 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
                 },
             )
             failed_count += 1
+        if _stop_requested(config):
+            stopped = True
+            logger.info("batch_stop_requested: platform=%s after_file=%d", config.platform_id, index)
+            break
 
     timed_file_count = len(files) if files else 1
     timing_batch_avg = {key: round(float(timing_batch_total.get(key, 0.0)) / float(timed_file_count), 6) for key in TIMING_STAGE_KEYS}
@@ -341,7 +359,7 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
         "ratio_of_total": round(float(hotspot_candidates.get(hotspot_stage, 0.0)) / float(timing_batch_total.get("total_sec", 0.0)), 6) if hotspot_stage and float(timing_batch_total.get("total_sec", 0.0)) > 0.0 else 0.0,
         "batch_wall_sec": round(time.perf_counter() - batch_started, 6),
     }
-    result_code = 0 if failed_count == 0 else 2
+    result_code = 3 if stopped else (0 if failed_count == 0 else 2)
     summary = BatchSummary(
         result_code=result_code,
         platform_id=config.platform_id,
