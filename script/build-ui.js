@@ -1,3 +1,4 @@
+﻿const fs = require("fs");
 const path = require("path");
 const {
   ensureDir,
@@ -6,6 +7,7 @@ const {
   parseArgs,
   resolvePythonExe,
   run,
+  capture,
 } = require("./build-lib");
 
 const args = parseArgs(process.argv.slice(2));
@@ -18,6 +20,29 @@ const mainPy = path.join(rootDir, "main.py");
 const assetsDir = path.join(rootDir, "assets");
 const kuwoRuntimeDir = path.join(rootDir, "src", "Infrastructure", "platforms", "kuwo", "runtime_m");
 
+function hasModule(moduleName) {
+  const script = [
+    "import importlib.util, sys",
+    `sys.exit(0 if importlib.util.find_spec(${JSON.stringify(moduleName)}) else 1)`,
+  ].join("; ");
+  try {
+    capture(pythonExe, ["-c", script], { cwd: rootDir });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function ensureModule(moduleName, packageName = moduleName) {
+  if (hasModule(moduleName)) {
+    return;
+  }
+  run(pythonExe, ["-m", "pip", "install", packageName], { cwd: rootDir });
+  if (!hasModule(moduleName)) {
+    throw new Error(`Python module '${moduleName}' is still unavailable after installing '${packageName}'.`);
+  }
+}
+
 ensureFile(mainPy, "main entry");
 ensureDir(assetsDir, "assets directory");
 ensureDir(kuwoRuntimeDir, "kuwo runtime directory");
@@ -26,6 +51,9 @@ ensureFile(path.join(assetsDir, "kudog_native.dll"), "kudog_native.dll");
 ensureFile(path.join(assetsDir, "ffmpeg-win-x86_64-v7.1.exe"), "bundled ffmpeg");
 ensureFile(path.join(kuwoRuntimeDir, "kwm_export_agent.js"), "kwm_export_agent.js");
 ensureFile(path.join(kuwoRuntimeDir, "out", "recovered_signature.json"), "kuwo recovered signature");
+
+ensureModule("flet", "flet");
+ensureModule("flet_desktop", "flet-desktop");
 
 ensureEmptyDir(distRoot);
 ensureEmptyDir(buildRoot);
@@ -59,7 +87,13 @@ const pyinstallerArgs = [
   "--collect-all",
   "flet",
   "--collect-all",
+  "flet_desktop",
+  "--collect-all",
   "frida",
+  "--hidden-import",
+  "flet_desktop",
+  "--hidden-import",
+  "flet_desktop.version",
   "--add-data",
   `${assetsDir};assets`,
   "--add-data",
