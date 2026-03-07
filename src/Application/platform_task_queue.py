@@ -1,0 +1,228 @@
+from __future__ import annotations
+
+import pathlib
+import threading
+import time
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Any, Callable
+
+from src.Application.decrypt_service import run_batch
+from src.Application.models import BatchRunConfig
+from src.Infrastructure.platforms.registry import build_platform_adapter
+
+
+TaskStarter = Callable[[Callable[[], None]], None]
+StateSink = Callable[[list[dict[str, Any]]], None]
+LogSink = Callable[[str], None]
+CollisionResolver = Callable[[str, str, str | None], str]
+
+
+@dataclass(slots=True)
+class PlatformTaskState:
+    platform_id: str
+    title: str
+    input_path: str
+    output_dir: str
+    recursive: bool
+    settings: dict[str, Any]
+    status: str = "idle"
+    message: str = "Idle"
+    current_file: str = ""
+    current_index: int = 0
+    current_total: int = 0
+    queue_position: int = 0
+    success_count: int = 0
+    skipped_count: int = 0
+    failed_count: int = 0
+    candidate_count: int = 0
+    result_code: int | None = None
+    batch_report_json: str = ""
+    batch_report_txt: str = ""
+    timing_hotspot: dict[str, Any] = field(default_factory=dict)
+    last_timing: dict[str, Any] = field(default_factory=dict)
+    last_updated: float = field(default_factory=time.time)
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "platform_id": self.platform_id,
+            "title": self.title,
+            "input_path": self.input_path,
+            "output_dir": self.output_dir,
+            "recursive": self.recursive,
+            "status": self.status,
+            "message": self.message,
+            "current_file": self.current_file,
+            "current_index": self.current_index,
+            "current_total": self.current_total,
+            "queue_position": self.queue_position,
+            "success_count": self.success_count,
+            "skipped_count": self.skipped_count,
+            "failed_count": self.failed_count,
+            "candidate_count": self.candidate_count,
+            "result_code": self.result_code,
+            "batch_report_json": self.batch_report_json,
+            "batch_report_txt": self.batch_report_txt,
+            "timing_hotspot": dict(self.timing_hotspot),
+            "last_timing": dict(self.last_timing),
+            "last_updated": self.last_updated,
+        }
+
+
+class PlatformTaskQueue:
+    def __init__(
+        self,
+        *,
+        task_starter: TaskStarter,
+        state_sink: StateSink,
+        log_sink: LogSink,
+        collision_resolver: CollisionResolver,
+        max_running: int = 2,
+    ) -> None:
+        self._task_starter = task_starter
+        self._state_sink = state_sink
+        self._log_sink = log_sink
+        self._collision_resolver = collision_resolver
+        self._max_running = max_running
+        self._lock = threading.RLock()
+        self._tasks: dict[str, PlatformTaskState] = {}
+        self._running: set[str] = set()
+        self._queue: deque[str] = deque()
+
+    def submit(
+        self,
+        *,
+        platform_id: str,
+        title: str,
+        input_path: pathlib.Path,
+        output_dir: pathlib.Path,
+        recursive: bool,
+        settings: dict[str, Any],
+    ) -> tuple[bool, str | None]:
+        with self._lock:
+            current = self._tasks.get(platform_id)
+            if current and current.status in {"queued", "running"}:
+                return False, f"{title} task is already running or queued."
+            task = PlatformTaskState(
+                platform_id=platform_id,
+                title=title,
+                input_path=str(input_path),
+                output_dir=str(output_dir),
+                recursive=recursive,
+                settings=dict(settings),
+            )
+            self._tasks[platform_id] = task
+            if len(self._running) < self._max_running:
+                self._start_locked(task)
+            else:
+                task.status = "queued"
+                task.message = "Queued"
+                self._queue.append(platform_id)
+                self._reindex_queue_locked()
+                self._emit_log_locked(f"[queue] {title} queued")
+                self._push_state_locked()
+            return True, None
+
+    def snapshot(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return [self._tasks[key].to_payload() for key in sorted(self._tasks)]
+
+    def _emit_log_locked(self, message: str) -> None:
+        self._log_sink(message)
+
+    def _push_state_locked(self) -> None:
+        self._state_sink([self._tasks[key].to_payload() for key in sorted(self._tasks)])
+
+    def _reindex_queue_locked(self) -> None:
+        for position, platform_id in enumerate(self._queue, start=1):
+            if platform_id in self._tasks:
+                self._tasks[platform_id].queue_position = position
+
+    def _start_locked(self, task: PlatformTaskState) -> None:
+        task.status = "running"
+        task.message = "Task started"
+        task.queue_position = 0
+        task.last_updated = time.time()
+        self._running.add(task.platform_id)
+        self._emit_log_locked(f"[start] {task.title} started")
+        self._push_state_locked()
+        self._task_starter(lambda: self._run_task(task.platform_id))
+
+    def _drain_locked(self) -> None:
+        while self._queue and len(self._running) < self._max_running:
+            next_platform_id = self._queue.popleft()
+            next_task = self._tasks.get(next_platform_id)
+            if next_task is None:
+                continue
+            self._start_locked(next_task)
+        self._reindex_queue_locked()
+        self._push_state_locked()
+
+    def _run_task(self, platform_id: str) -> None:
+        task = self._tasks[platform_id]
+        adapter = build_platform_adapter(platform_id)
+        batch_config = BatchRunConfig(
+            platform_id=platform_id,
+            input_path=pathlib.Path(task.input_path),
+            output_dir=pathlib.Path(task.output_dir),
+            recursive=task.recursive,
+            collision_policy="suffix",
+            settings=dict(task.settings),
+            interactive=True,
+            collision_resolver=self._collision_resolver,
+            event_sink=lambda event_name, payload: self._handle_event(platform_id, event_name, payload),
+        )
+        try:
+            result_code = run_batch(batch_config, adapter)
+        except Exception as exc:
+            with self._lock:
+                task.status = "failed"
+                task.message = str(exc)
+                task.result_code = 2
+                task.last_updated = time.time()
+                self._running.discard(platform_id)
+                self._emit_log_locked(f"[failed] {task.title}: {exc}")
+                self._drain_locked()
+            return
+
+        with self._lock:
+            task.result_code = result_code
+            task.status = "success" if result_code == 0 else "failed"
+            task.message = "Completed" if result_code == 0 else "Failed"
+            task.last_updated = time.time()
+            self._running.discard(platform_id)
+            self._emit_log_locked(f"[done] {task.title} result_code={result_code}")
+            self._drain_locked()
+
+    def _handle_event(self, platform_id: str, event_name: str, payload: dict[str, Any]) -> None:
+        with self._lock:
+            task = self._tasks.get(platform_id)
+            if task is None:
+                return
+            if event_name == "batch_started":
+                task.candidate_count = int(payload.get("candidate_count", 0) or 0)
+                task.current_total = task.candidate_count
+                task.message = "Batch started"
+            elif event_name == "file_started":
+                task.current_file = str(payload.get("input_path", "") or "")
+                task.current_index = int(payload.get("index", 0) or 0)
+                task.current_total = int(payload.get("total", task.current_total) or task.current_total)
+                task.message = pathlib.Path(task.current_file).name if task.current_file else "Processing"
+            elif event_name == "file_finished":
+                result = str(payload.get("result", "") or "")
+                if result == "success":
+                    task.success_count += 1
+                elif result == "already_decrypted":
+                    task.skipped_count += 1
+                elif result == "failed":
+                    task.failed_count += 1
+                task.last_timing = dict(payload.get("timing", {}) or {})
+            elif event_name == "batch_finished":
+                task.success_count = int(payload.get("success_count", task.success_count) or task.success_count)
+                task.skipped_count = int(payload.get("skipped_count", task.skipped_count) or task.skipped_count)
+                task.failed_count = int(payload.get("failed_count", task.failed_count) or task.failed_count)
+                task.batch_report_json = str(payload.get("batch_report_json", "") or "")
+                task.batch_report_txt = str(payload.get("batch_report_txt", "") or "")
+                task.timing_hotspot = dict(payload.get("timing_hotspot_stage", {}) or {})
+            task.last_updated = time.time()
+            self._push_state_locked()
