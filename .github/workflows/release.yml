@@ -39,7 +39,7 @@ jobs:
       - name: Install Python build dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pyinstaller frida flet flet-desktop
+          python -m pip install pyinstaller frida PySide6
 
       - name: Install Node dependencies
         run: npm install
@@ -48,3 +48,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release
+

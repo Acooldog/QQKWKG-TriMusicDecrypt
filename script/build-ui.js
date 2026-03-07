@@ -52,12 +52,11 @@ ensureFile(path.join(assetsDir, "ffmpeg-win-x86_64-v7.1.exe"), "bundled ffmpeg")
 ensureFile(path.join(kuwoRuntimeDir, "kwm_export_agent.js"), "kwm_export_agent.js");
 ensureFile(path.join(kuwoRuntimeDir, "out", "recovered_signature.json"), "kuwo recovered signature");
 
-ensureModule("flet", "flet");
-ensureModule("flet_desktop", "flet-desktop");
+ensureModule("PySide6", "PySide6");
+ensureModule("shiboken6", "PySide6");
 
 ensureEmptyDir(distRoot);
 ensureEmptyDir(buildRoot);
-
 run(pythonExe, ["-m", "PyInstaller", "--version"], { cwd: rootDir });
 
 const specRoot = path.join(buildRoot, "spec");
@@ -85,15 +84,17 @@ const pyinstallerArgs = [
   "--collect-submodules",
   "src",
   "--collect-all",
-  "flet",
+  "PySide6",
   "--collect-all",
-  "flet_desktop",
+  "shiboken6",
   "--collect-all",
   "frida",
   "--hidden-import",
-  "flet_desktop",
+  "PySide6.QtCore",
   "--hidden-import",
-  "flet_desktop.version",
+  "PySide6.QtGui",
+  "--hidden-import",
+  "PySide6.QtWidgets",
   "--add-data",
   `${assetsDir};assets`,
   "--add-data",
