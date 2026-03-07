@@ -17,6 +17,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Fetch main-ui branch
+        run: git fetch origin main-ui:main-ui
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:

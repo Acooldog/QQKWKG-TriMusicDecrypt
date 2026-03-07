@@ -111,6 +111,15 @@ function locateIscc() {
       return candidate;
     }
   }
+  try {
+    const resolved = capture("where.exe", ["ISCC.exe"]);
+    const first = resolved.split(/\r?\n/).map((item) => item.trim()).find(Boolean);
+    if (first && fs.existsSync(first) && fs.statSync(first).isFile()) {
+      return first;
+    }
+  } catch (error) {
+    // Fall through to null when ISCC is not on PATH.
+  }
   return null;
 }
 

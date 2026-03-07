@@ -1,11 +1,10 @@
-const fs = require("fs");
+﻿const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const {
   capture,
   cleanDir,
-  copyRecursive,
   ensureDir,
   ensureEmptyDir,
   ensureFile,
@@ -24,7 +23,7 @@ const uiDistDir = path.join(distDir, "ui");
 const uiBuildDir = path.join(buildDir, "ui");
 const consoleDistDir = path.join(distDir, "console");
 const consoleBuildDir = path.join(buildDir, "console");
-const uiWorktreeDir = path.join(os.tmpdir(), "A_QKKd_main_ui_worktree");
+const tempUiWorktreeDir = path.join(os.tmpdir(), "A_QKKd_main_ui_worktree");
 const pythonExe = resolvePythonExe(rootDir);
 const consoleExeName = "QKKDecrypt.exe";
 const uiAppName = "QKKDecrypt-UI";
@@ -38,7 +37,7 @@ function localBranchExists(repoDir, branchName) {
   try {
     capture("git", ["show-ref", "--verify", `refs/heads/${branchName}`], { cwd: repoDir });
     return true;
-  } catch (error) {
+  } catch {
     return false;
   }
 }
@@ -47,7 +46,7 @@ function remoteBranchExists(repoDir, remoteRef) {
   try {
     capture("git", ["show-ref", "--verify", remoteRef], { cwd: repoDir });
     return true;
-  } catch (error) {
+  } catch {
     return false;
   }
 }
@@ -79,9 +78,35 @@ function removeWorktreeIfPresent(worktreePath) {
   cleanDir(worktreePath);
 }
 
-function addUiWorktree() {
-  removeWorktreeIfPresent(uiWorktreeDir);
-  run("git", ["worktree", "add", "--force", uiWorktreeDir, "main-ui"], { cwd: rootDir });
+function findExistingWorktree(branchName) {
+  const raw = capture("git", ["worktree", "list", "--porcelain"], { cwd: rootDir });
+  const entries = raw.split(/\r?\n\r?\n/).map((block) => block.trim()).filter(Boolean);
+  for (const entry of entries) {
+    const lines = entry.split(/\r?\n/);
+    let worktreePath = "";
+    let branchRef = "";
+    for (const line of lines) {
+      if (line.startsWith("worktree ")) {
+        worktreePath = line.slice("worktree ".length).trim();
+      } else if (line.startsWith("branch ")) {
+        branchRef = line.slice("branch ".length).trim();
+      }
+    }
+    if (branchRef === `refs/heads/${branchName}` && path.resolve(worktreePath) !== path.resolve(rootDir)) {
+      return worktreePath;
+    }
+  }
+  return null;
+}
+
+function resolveUiWorktree() {
+  const existing = findExistingWorktree("main-ui");
+  if (existing) {
+    return { repoDir: existing, ephemeral: false };
+  }
+  removeWorktreeIfPresent(tempUiWorktreeDir);
+  run("git", ["worktree", "add", "--force", tempUiWorktreeDir, "main-ui"], { cwd: rootDir });
+  return { repoDir: tempUiWorktreeDir, ephemeral: true };
 }
 
 function runNativeBuild(repoDir) {
@@ -97,22 +122,23 @@ function runNativeBuild(repoDir) {
 
 function buildConsole() {
   runNativeBuild(rootDir);
-  run("node", [path.join(rootDir, "script", "build-console.js"), "--dist-root", consoleDistDir, "--build-root", consoleBuildDir], {
-    cwd: rootDir,
-    env: { ...process.env, QKK_PYTHON_EXE: pythonExe },
-  });
+  run(
+    "node",
+    [path.join(rootDir, "script", "build-console.js"), "--dist-root", consoleDistDir, "--build-root", consoleBuildDir],
+    { cwd: rootDir, env: { ...process.env, QKK_PYTHON_EXE: pythonExe } },
+  );
   const builtConsoleExe = path.join(consoleDistDir, consoleExeName);
   ensureFile(builtConsoleExe, "console build");
   fs.copyFileSync(builtConsoleExe, path.join(releaseDir, consoleExeName));
 }
 
-function buildUi() {
-  addUiWorktree();
-  runNativeBuild(uiWorktreeDir);
-  run("node", [path.join(uiWorktreeDir, "script", "build-ui.js"), "--dist-root", uiDistDir, "--build-root", uiBuildDir], {
-    cwd: uiWorktreeDir,
-    env: { ...process.env, QKK_PYTHON_EXE: pythonExe },
-  });
+function buildUi(uiRepoDir) {
+  runNativeBuild(uiRepoDir);
+  run(
+    "node",
+    [path.join(uiRepoDir, "script", "build-ui.js"), "--dist-root", uiDistDir, "--build-root", uiBuildDir],
+    { cwd: uiRepoDir, env: { ...process.env, QKK_PYTHON_EXE: pythonExe } },
+  );
   const appDir = path.join(uiDistDir, uiAppName);
   ensureDir(appDir, "ui dist app directory");
   return appDir;
@@ -150,10 +176,10 @@ Name: "{autoprograms}\\QKKDecrypt UI"; Filename: "{app}\\${uiAppName}.exe"
 Name: "{autodesktop}\\QKKDecrypt UI"; Filename: "{app}\\${uiAppName}.exe"; Tasks: desktopicon
 
 [Tasks]
-Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务:"
+Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional tasks:"
 
 [Run]
-Filename: "{app}\\${uiAppName}.exe"; Description: "启动 QKKDecrypt UI"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\\${uiAppName}.exe"; Description: "Launch QKKDecrypt UI"; Flags: nowait postinstall skipifsilent
 `.trim();
   fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
   fs.writeFileSync(scriptPath, iss, "utf8");
@@ -171,9 +197,12 @@ function main() {
   fs.mkdirSync(buildDir, { recursive: true });
 
   buildConsole();
-  const uiAppDir = buildUi();
+  const uiWorktree = resolveUiWorktree();
+  const uiAppDir = buildUi(uiWorktree.repoDir);
   compileUiSetup(uiAppDir);
-  removeWorktreeIfPresent(uiWorktreeDir);
+  if (uiWorktree.ephemeral) {
+    removeWorktreeIfPresent(uiWorktree.repoDir);
+  }
 
   const finalAssets = fs.readdirSync(releaseDir).sort();
   console.log(`Release assets ready: ${finalAssets.join(", ")}`);
