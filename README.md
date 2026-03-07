@@ -29,7 +29,8 @@
 
 </div>
 
-
+---
+# 介绍
 `QKKDecrypt` is the unified tri-platform project for:
 - 中文名: `QQ酷狗酷我音乐解密工具`
 - 英文名: `QKKDecrypt`
