@@ -111,6 +111,7 @@ class PlatformTaskQueue:
             current = self._tasks.get(platform_id)
             if current and current.status in {"queued", "running", "waiting", "stopping"}:
                 return False, f"{title} 任务已在运行或排队。"
+
             task = PlatformTaskState(
                 platform_id=platform_id,
                 title=title,
@@ -261,7 +262,9 @@ class PlatformTaskQueue:
                     return
                 task.status = "waiting"
                 task.message = f"持续解密等待 {int(task.loop_interval_sec)} 秒后重扫"
-                self._emit_log_locked(f"[loop] {task.title} waiting {task.loop_interval_sec:.0f}s for next scan")
+                self._emit_log_locked(
+                    f"[loop] {task.title} waiting {task.loop_interval_sec:.0f}s for next scan"
+                )
                 self._push_state_locked()
 
             waited = 0.0

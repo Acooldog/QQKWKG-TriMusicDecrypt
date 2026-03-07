@@ -116,6 +116,8 @@ class UiBridge(QObject):
     states_changed = Signal(object)
     log_line = Signal(str)
     collision_request = Signal(object)
+    runtime_prompt_request = Signal(object)
+    submission_result = Signal(object)
 
 
 class TitleBar(QFrame):
@@ -424,6 +426,7 @@ class MainWindow(QWidget):
             collision_resolver=self._resolve_collision,
             max_running=2,
         )
+        self._submission_inflight: set[str] = set()
         self._drag_origin: QPoint | None = None
         self._cards: dict[str, PlatformCard] = {}
         self._build_ui()
@@ -592,6 +595,12 @@ class MainWindow(QWidget):
         self.bridge.states_changed.connect(self._apply_states)
         self.bridge.log_line.connect(self._append_log)
         self.bridge.collision_request.connect(self._handle_collision_request)
+        self.bridge.runtime_prompt_request.connect(
+            self._handle_runtime_prompt_request)
+        self.bridge.submission_result.connect(self._handle_submission_result)
+
+    def _platform_title(self, platform_id: str) -> str:
+        return {"qq": "QQ音乐", "kuwo": "酷我音乐", "kugou": "酷狗音乐"}[platform_id]
 
     def _load_config_into_widgets(self) -> None:
         self.root_config, self.config = load_config(self.paths)
@@ -630,7 +639,7 @@ class MainWindow(QWidget):
         self._cards["kugou"].extra_field("kgg_db_path").setText(
             str(kugou.get("kgg_db_path", "")))
 
-    def _save_config_from_widgets(self) -> None:
+    def _save_config_from_widgets(self, *, announce: bool = True) -> None:
         shared = {
             "output_dir": self.output_field.text() or str(self.paths.output_dir),
             "cli_collision_policy": "suffix",
@@ -662,7 +671,8 @@ class MainWindow(QWidget):
         self.config = {"shared": shared, "qq": qq,
                        "kuwo": kuwo, "kugou": kugou}
         save_config(self.paths, self.root_config, self.config)
-        self._append_log("配置已保存。")
+        if announce:
+            self._append_log("配置已保存。")
 
     def _reload_config(self) -> None:
         self._load_config_into_widgets()
@@ -688,50 +698,90 @@ class MainWindow(QWidget):
             field.setText(selected)
 
     def _handle_platform_action(self, platform_id: str) -> None:
+        title = self._platform_title(platform_id)
+        if platform_id in self._submission_inflight:
+            self._append_log(f"[{title}] 正在准备任务，请稍候。")
+            return
         self._save_config_from_widgets()
-        adapter = build_platform_adapter(platform_id)
-        title = {"qq": "QQ音乐", "kuwo": "酷我音乐", "kugou": "酷狗音乐"}[platform_id]
         input_path = pathlib.Path(self._cards[platform_id].input_field.text())
         output_dir = pathlib.Path(
             self.output_field.text() or str(self.paths.output_dir))
         settings = dict(self.config[platform_id])
+        recursive = self.recursive_checkbox.isChecked()
+        continuous = self._cards[platform_id].continuous_checkbox.isChecked()
         if not input_path.exists():
             self._show_message("输入路径无效", f"{title} 的输入路径不存在。")
             return
+        self._submission_inflight.add(platform_id)
+        self._cards[platform_id].run_button.setEnabled(False)
+        self._append_log(f"[{title}] 正在准备任务...")
+        threading.Thread(
+            target=self._prepare_and_submit_platform_task,
+            args=(platform_id, title, input_path, output_dir,
+                  recursive, continuous, settings),
+            daemon=True,
+        ).start()
+
+    def _prepare_and_submit_platform_task(
+        self,
+        platform_id: str,
+        title: str,
+        input_path: pathlib.Path,
+        output_dir: pathlib.Path,
+        recursive: bool,
+        continuous: bool,
+        settings: dict[str, Any],
+    ) -> None:
+        adapter = build_platform_adapter(platform_id)
+        settings_updates: dict[str, str] = {}
 
         if platform_id == "kugou":
             if not settings.get("key_file"):
                 found = auto_find_kugou_key(self.paths)
                 if found is not None:
                     settings["key_file"] = str(found)
-                    self._cards["kugou"].extra_field(
-                        "key_file").setText(str(found))
+                    settings_updates["key_file"] = str(found)
             if not settings.get("kgg_db_path"):
                 found_db = auto_find_kgg_db_path()
                 if found_db is not None:
                     settings["kgg_db_path"] = str(found_db)
-                    self._cards["kugou"].extra_field(
-                        "kgg_db_path").setText(str(found_db))
+                    settings_updates["kgg_db_path"] = str(found_db)
 
         if adapter.requires_running_process():
             while True:
                 ok, reason = adapter.validate_runtime(settings)
                 if ok:
                     break
-                choice = QMessageBox.question(
-                    self,
-                    f"{title} 未运行",
-                    f"{reason or '未检测到进程'}\n请先开启对应软件，然后点击“是”重新检测。",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-                    QMessageBox.StandardButton.Yes,
+                event = threading.Event()
+                holder: dict[str, bool] = {"accepted": False}
+                self.bridge.runtime_prompt_request.emit(
+                    (event, holder, title, reason or "未检测到对应进程。")
                 )
-                if choice != QMessageBox.StandardButton.Yes:
-                    self._append_log(f"[{title}] 用户取消启动前检测。")
+                event.wait()
+                if not holder.get("accepted"):
+                    self.bridge.submission_result.emit(
+                        {
+                            "platform_id": platform_id,
+                            "title": title,
+                            "submitted": False,
+                            "error": "用户取消了运行前检测。",
+                            "settings_updates": settings_updates,
+                            "cancelled": True,
+                        }
+                    )
                     return
         else:
             ok, reason = adapter.validate_runtime(settings)
             if not ok:
-                self._show_message("运行环境无效", reason or "当前平台运行环境不可用。")
+                self.bridge.submission_result.emit(
+                    {
+                        "platform_id": platform_id,
+                        "title": title,
+                        "submitted": False,
+                        "error": reason or "当前平台运行环境不可用。",
+                        "settings_updates": settings_updates,
+                    }
+                )
                 return
 
         submitted, error = self._task_queue.submit(
@@ -739,19 +789,22 @@ class MainWindow(QWidget):
             title=title,
             input_path=input_path,
             output_dir=output_dir,
-            recursive=self.recursive_checkbox.isChecked(),
+            recursive=recursive,
             settings=settings,
-            continuous=self._cards[platform_id].continuous_checkbox.isChecked(
-            ),
+            continuous=continuous,
         )
-        if not submitted:
-            self._show_message("任务未提交", error or "当前平台任务已在运行或排队。")
-            return
-        self._append_log(f"[{title}] 任务已提交。")
-        self._save_config_from_widgets()
+        self.bridge.submission_result.emit(
+            {
+                "platform_id": platform_id,
+                "title": title,
+                "submitted": submitted,
+                "error": error,
+                "settings_updates": settings_updates,
+            }
+        )
 
     def _handle_platform_stop(self, platform_id: str) -> None:
-        title = {"qq": "QQ音乐", "kuwo": "酷我音乐", "kugou": "酷狗音乐"}[platform_id]
+        title = self._platform_title(platform_id)
         stopped, error = self._task_queue.stop(platform_id)
         if not stopped:
             self._show_message("无法停止任务", error or "当前平台没有可停止的任务。")
@@ -790,6 +843,50 @@ class MainWindow(QWidget):
             holder["choice"] = "suffix"
         event.set()
 
+    def _handle_runtime_prompt_request(self, payload: object) -> None:
+        event, holder, title, reason = payload
+        choice = QMessageBox.question(
+            self,
+            f"{title} 未运行",
+            f"{reason}\n请先开启对应软件，然后点击“是”重新检测。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes,
+        )
+        holder["accepted"] = choice == QMessageBox.StandardButton.Yes
+        event.set()
+
+    def _handle_submission_result(self, payload: object) -> None:
+        data = payload if isinstance(payload, dict) else {}
+        platform_id = str(data.get("platform_id", "") or "")
+        if not platform_id:
+            return
+        title = str(data.get("title", platform_id) or platform_id)
+        self._submission_inflight.discard(platform_id)
+
+        settings_updates = data.get("settings_updates") or {}
+        if platform_id == "kugou":
+            if "key_file" in settings_updates:
+                self._cards["kugou"].extra_field("key_file").setText(
+                    str(settings_updates["key_file"]))
+            if "kgg_db_path" in settings_updates:
+                self._cards["kugou"].extra_field("kgg_db_path").setText(
+                    str(settings_updates["kgg_db_path"]))
+            if settings_updates:
+                self._save_config_from_widgets(announce=False)
+
+        submitted = bool(data.get("submitted", False))
+        error = str(data.get("error", "") or "")
+        if not submitted:
+            self._cards[platform_id].run_button.setEnabled(True)
+            if error:
+                self._append_log(f"[{title}] {error}")
+            if not data.get("cancelled"):
+                self._show_message("任务未提交", error or "当前平台任务已在运行或排队。")
+            return
+
+        self._append_log(f"[{title}] 任务已提交。")
+        self._save_config_from_widgets(announce=False)
+
     def _apply_states(self, states: object) -> None:
         states = states if isinstance(states, list) else []
         running = 0
@@ -799,6 +896,8 @@ class MainWindow(QWidget):
             card = self._cards.get(platform_id)
             if card is not None:
                 card.apply_state(payload)
+                if platform_id in self._submission_inflight:
+                    card.run_button.setEnabled(False)
             status = str(payload.get("status", "idle") or "idle")
             if status in {"running", "waiting", "stopping"}:
                 running += 1
