@@ -30,15 +30,17 @@
 </div>
 
 ---
-# 介绍
-`QKKDecrypt` is the unified tri-platform project for:
+# `QKKDecrypt` 介绍
 - 中文名: `QQ酷狗酷我音乐解密工具`
 - 英文名: `QKKDecrypt`
 - 项目地址: `https://github.com/Acooldog/QQKWKG-TriMusicDecrypt`
-- QQ: `2622138410`
+  
+main分支为console版本
+main-ui分支为UI版本，UI框架为pyside6
 
-qq音乐解密模型思路是[qqmusic_decrypt](https://github.com/luyikk/qqmusic_decrypt)项目提供的，其他的模型均自主抱着学习以及尊重正版的名义逆向学习
-仅供学习交流使用，禁止商用，禁止倒卖；倒卖者将举报平台并持续追责。
+qq音乐解密模型思路是[qqmusic_decrypt](https://github.com/luyikk/qqmusic_decrypt)项目提供的<br>
+其他的解密模型均自主抱着学习以及尊重正版的名义逆向学习<br>
+仅供学习交流使用，禁止商用！禁止倒卖！倒卖者将举报平台并持续追责！！！
 
 ## Branches
 
