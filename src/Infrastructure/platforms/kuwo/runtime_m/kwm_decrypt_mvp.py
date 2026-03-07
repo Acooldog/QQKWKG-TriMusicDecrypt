@@ -279,7 +279,8 @@ def detect_audio_ext(path: pathlib.Path) -> str:
 def compute_effective_wait_sec(input_path: pathlib.Path, timeout_sec: int) -> float:
     size_mb = max(0.0, float(input_path.stat().st_size) / (1024 * 1024))
     dynamic = 6 + math.ceil(size_mb / 2)
-    return float(max(int(timeout_sec), min(45, dynamic)))
+    hard_cap = max(4, int(timeout_sec))
+    return float(max(4, min(hard_cap, min(45, dynamic))))
 
 
 def build_attempt_payload(

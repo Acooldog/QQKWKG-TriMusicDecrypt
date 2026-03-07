@@ -189,6 +189,7 @@ class KuwoPlatformAdapter:
             exe_path=str(settings.get("exe_path", "") or kwm_decrypt_mvp.DEFAULT_EXE_PATH),
             signature_file=str(settings.get("signature_file", "") or kwm_decrypt_mvp.DEFAULT_SIGNATURE_FILE),
             process_name=str(settings.get("process_name", kwm_decrypt_mvp.DEFAULT_PROCESS_NAME) or kwm_decrypt_mvp.DEFAULT_PROCESS_NAME),
+            timeout_sec=int(settings.get("timeout_sec", 12) or 12),
             verbose=False,
         )
         persisted_report = self._load_latest_report(report_dir, input_path)
