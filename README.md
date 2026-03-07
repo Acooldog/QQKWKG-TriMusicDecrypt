@@ -1,33 +1,33 @@
-﻿<center>
+﻿<div align="center">
 
 # QKKDecrypt - QQ酷狗酷我音乐解密工具
 
-</center>
+</div>
 
 
 
-<center>
+<div align="center">
 
 ![Python](https://img.shields.io/badge/Python-3.7%2B-blue)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 ![GitHub stars](https://img.shields.io/github/stars/Acooldog/QQKWKG-TriMusicDecrypt?style=social)
 
-</center>
+</div>
 
-<center>
+<div align="center">
 
 **一款可以解密QQ音乐、酷我音乐、酷狗音乐的开源免费工具**<br>
 **仅供学习交流使用，尊重正版，从你我做起**<br>
 **如果对你有帮助，可以点一下star吗？万分感谢！！！**<br>
 **禁止商用、禁止倒卖**
 
-</center>
+</div>
 
-<center>
+<div align="center">
 
 <img src="./封面/封面.png" width="50%" height = "50%" align="center">
 
-</center>
+</div>
 
 
 `QKKDecrypt` is the unified tri-platform project for:
