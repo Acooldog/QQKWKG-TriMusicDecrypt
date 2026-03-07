@@ -6,7 +6,7 @@ import threading
 from typing import Any
 
 from PySide6.QtCore import QObject, QPoint, Qt, QTimer, Signal
-from PySide6.QtGui import QDesktopServices, QMouseEvent
+from PySide6.QtGui import QDesktopServices, QIcon, QMouseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -411,6 +411,9 @@ class MainWindow(QWidget):
 
     def _build_ui(self) -> None:
         self.setWindowTitle(PROJECT_NAME_EN)
+        icon_path = self.paths.root_dir / "封面" / "封面.ico"
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
         self.setMinimumSize(900, 620)
         self.resize(1040, 680)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
@@ -757,6 +760,10 @@ class MainWindow(QWidget):
 def main() -> int:
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+    runtime_root = RuntimePaths.discover().root_dir
+    icon_path = runtime_root / "封面" / "封面.ico"
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
     window = MainWindow()
     window.show()
     QTimer.singleShot(120, lambda: StartupNoticeDialog(window).exec())
