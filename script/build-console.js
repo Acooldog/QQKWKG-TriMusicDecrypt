@@ -17,6 +17,7 @@ const pythonExe = resolvePythonExe(rootDir);
 const mainPy = path.join(rootDir, "main.py");
 const assetsDir = path.join(rootDir, "assets");
 const kuwoRuntimeDir = path.join(rootDir, "src", "Infrastructure", "platforms", "kuwo", "runtime_m");
+const appIcon = path.join(rootDir, "封面", "封面.ico");
 
 ensureFile(mainPy, "main entry");
 ensureDir(assetsDir, "assets directory");
@@ -26,6 +27,7 @@ ensureFile(path.join(assetsDir, "kudog_native.dll"), "kudog_native.dll");
 ensureFile(path.join(assetsDir, "ffmpeg-win-x86_64-v7.1.exe"), "bundled ffmpeg");
 ensureFile(path.join(kuwoRuntimeDir, "kwm_export_agent.js"), "kwm_export_agent.js");
 ensureFile(path.join(kuwoRuntimeDir, "out", "recovered_signature.json"), "kuwo recovered signature");
+ensureFile(appIcon, "application icon");
 
 ensureEmptyDir(distRoot);
 ensureEmptyDir(buildRoot);
@@ -41,6 +43,8 @@ const pyinstallerArgs = [
   "--noconfirm",
   "--clean",
   "--onefile",
+  "--icon",
+  appIcon,
   "--name",
   appName,
   "--distpath",
@@ -57,6 +61,8 @@ const pyinstallerArgs = [
   "frida",
   "--add-data",
   `${assetsDir};assets`,
+  "--add-data",
+  `${path.dirname(appIcon)};封面`,
   "--add-data",
   `${kuwoRuntimeDir};src/Infrastructure/platforms/kuwo/runtime_m`,
   mainPy,

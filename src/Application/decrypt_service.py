@@ -76,16 +76,25 @@ def _default_collision_choice(base_name: str, extension: str, existing_platform:
     return config.collision_resolver(base_name, extension, existing_platform)
 
 
+def _publish_base_name(platform_id: str, input_path: pathlib.Path, base_name: str) -> str:
+    source_ext = input_path.suffix.lower().lstrip(".")
+    if platform_id == "kugou" and source_ext in {"kgg", "kgma", "kgm", "vpr"}:
+        return f"{base_name}.{source_ext}"
+    return base_name
+
+
 def _resolve_publish_target(
     *,
     base_name: str,
+    input_path: pathlib.Path,
     extension: str,
     platform_id: str,
     output_dir: pathlib.Path,
     manifest_repo: OutputManifestRepository,
     config: BatchRunConfig,
 ) -> tuple[pathlib.Path, str, str | None]:
-    target = output_dir / f"{base_name}.{extension}"
+    publish_name = _publish_base_name(platform_id, input_path, base_name)
+    target = output_dir / f"{publish_name}.{extension}"
     if not target.exists():
         return target, "direct", None
     existing_platform = manifest_repo.get_platform(target)
@@ -95,9 +104,9 @@ def _resolve_publish_target(
     if choice == "overwrite":
         return target, "overwrite", existing_platform
     if choice == "subdir":
-        sub_target = output_dir / platform_id / f"{base_name}.{extension}"
+        sub_target = output_dir / platform_id / f"{publish_name}.{extension}"
         return sub_target, "subdir", existing_platform
-    suffix_target = output_dir / f"{base_name}.{platform_id}.{extension}"
+    suffix_target = output_dir / f"{publish_name}.{platform_id}.{extension}"
     return suffix_target, "suffix", existing_platform
 
 
@@ -196,6 +205,7 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
         if predicted_ext:
             publish_hint = _resolve_publish_target(
                 base_name=basename,
+                input_path=file_path,
                 extension=predicted_ext,
                 platform_id=config.platform_id,
                 output_dir=config.output_dir,
@@ -244,6 +254,7 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
             if publish_hint is None or publish_hint[0].suffix.lower() != f".{final_extension}":
                 publish_hint = _resolve_publish_target(
                     base_name=basename,
+                    input_path=file_path,
                     extension=final_extension,
                     platform_id=config.platform_id,
                     output_dir=config.output_dir,

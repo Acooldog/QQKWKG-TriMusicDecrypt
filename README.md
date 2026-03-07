@@ -28,6 +28,20 @@
 <img src="./封面/封面.png" width="50%" height = "50%" align="center">
 
 </div>
+<br><br>
+
+---
+
+
+<div align="center">
+
+# 特别鸣谢
+**感谢提issues以及关注这个项目的人，你们的热情是我的动力<br>你们在bilibili的每条留言我都会看，愿我们永远沉浸在自己的热爱之中！**
+
+![issues1](./img/issues1.png)
+
+</div>
+
 
 ---
 # `QKKDecrypt` 介绍
