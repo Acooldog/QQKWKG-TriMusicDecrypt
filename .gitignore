@@ -1,23 +1,22 @@
-# 忽略文件
 .idea/
 .vscode/
 __pycache__/
-.venv
-output
-node_modules
-js
+.venv/
+node_modules/
 
 *.pyc
+*.pyo
+*.pyd
+*.spec
+
 dist/
 build/
-*.exe
-*.spec
-QQMusic-mflac-to-flac.spec
-horizon-repair-tool.spec
 release/
-测试/
+dist_hotfix/
+build_hotfix/
+
 _log/
 plugins/
-dist_hotfix/
-bulid_hotfix/
-QKKDecrypt/
+output/
+
+*.exe

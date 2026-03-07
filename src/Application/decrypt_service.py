@@ -124,6 +124,16 @@ def _maybe_transcode(logger: logging.Logger, input_path: pathlib.Path, target_fo
     return target_path, target_format, meta
 
 
+def _emit_event(config: BatchRunConfig, event_name: str, payload: dict[str, Any]) -> None:
+    if config.event_sink is None:
+        return
+    try:
+        config.event_sink(event_name, payload)
+    except Exception:
+        # UI / observer failures must not break the decrypt pipeline.
+        pass
+
+
 def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
     paths = RuntimePaths.discover()
     paths.ensure_runtime_dirs()
@@ -143,6 +153,16 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
 
     files = adapter.collect_files(config.input_path, config.recursive)
     logger.info("candidate_files: %d", len(files))
+    _emit_event(
+        config,
+        "batch_started",
+        {
+            "platform_id": config.platform_id,
+            "candidate_count": len(files),
+            "input_path": str(config.input_path),
+            "output_dir": str(config.output_dir),
+        },
+    )
 
     timing_batch_total = _new_timing()
     results: list[FileResult] = []
@@ -155,6 +175,16 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
         file_timing = _new_timing()
         scan_started = time.perf_counter()
         logger.info("[%d/%d] decrypting: %s", index, len(files), file_path)
+        _emit_event(
+            config,
+            "file_started",
+            {
+                "platform_id": config.platform_id,
+                "index": index,
+                "total": len(files),
+                "input_path": str(file_path),
+            },
+        )
         file_timing["scan_sec"] = round(time.perf_counter() - scan_started, 6)
 
         basename = adapter.output_basename(file_path)
@@ -180,7 +210,20 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
                 _accumulate(timing_batch_total, file_timing)
                 logger.info("skip_duplicate: %s -> %s", file_path.name, hinted_target)
                 logger.info("[timing] file_done [%d/%d] %s reason=already_decrypted %s", index, len(files), file_path.name, timing_text(file_timing))
-                results.append(FileResult(ok=True, skipped=True, platform_id=config.platform_id, input_path=str(file_path), output_path=str(hinted_target), reason="already_decrypted", timing=_copy_timing(file_timing)))
+                result = FileResult(ok=True, skipped=True, platform_id=config.platform_id, input_path=str(file_path), output_path=str(hinted_target), reason="already_decrypted", timing=_copy_timing(file_timing))
+                results.append(result)
+                _emit_event(
+                    config,
+                    "file_finished",
+                    {
+                        "platform_id": config.platform_id,
+                        "index": index,
+                        "total": len(files),
+                        "result": "already_decrypted",
+                        "output_path": str(hinted_target),
+                        "timing": dict(result.timing),
+                    },
+                )
                 continue
         file_timing["dedupe_sec"] = round(time.perf_counter() - dedupe_started, 6)
 
@@ -217,7 +260,21 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
                 _accumulate(timing_batch_total, file_timing)
                 logger.info("skip_duplicate_after_decode: %s -> %s", file_path.name, final_target)
                 logger.info("[timing] file_done [%d/%d] %s reason=already_decrypted %s", index, len(files), file_path.name, timing_text(file_timing))
-                results.append(FileResult(ok=True, skipped=True, platform_id=config.platform_id, input_path=str(file_path), output_path=str(final_target), reason="already_decrypted", timing=_copy_timing(file_timing), decrypt_detail_timing=decrypt_detail_timing, payload=detail))
+                result = FileResult(ok=True, skipped=True, platform_id=config.platform_id, input_path=str(file_path), output_path=str(final_target), reason="already_decrypted", timing=_copy_timing(file_timing), decrypt_detail_timing=decrypt_detail_timing, payload=detail)
+                results.append(result)
+                _emit_event(
+                    config,
+                    "file_finished",
+                    {
+                        "platform_id": config.platform_id,
+                        "index": index,
+                        "total": len(files),
+                        "result": "already_decrypted",
+                        "output_path": str(final_target),
+                        "timing": dict(result.timing),
+                        "decrypt_detail_timing": dict(result.decrypt_detail_timing),
+                    },
+                )
                 continue
             published = _publish_file(working_path, final_target)
             file_timing["publish_sec"] = round(time.perf_counter() - publish_started, 6)
@@ -236,14 +293,42 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
             logger.info("success: %s -> %s", file_path.name, published)
             logger.info("[timing] decrypt [%d/%d] %s elapsed=%.3fs", index, len(files), file_path.name, file_timing["decrypt_sec"])
             logger.info("[timing] file_done [%d/%d] %s reason=success %s", index, len(files), file_path.name, timing_text(file_timing))
-            results.append(FileResult(ok=True, skipped=False, platform_id=config.platform_id, input_path=str(file_path), output_path=str(published), timing=_copy_timing(file_timing), decrypt_detail_timing=decrypt_detail_timing, payload=payload))
+            result = FileResult(ok=True, skipped=False, platform_id=config.platform_id, input_path=str(file_path), output_path=str(published), timing=_copy_timing(file_timing), decrypt_detail_timing=decrypt_detail_timing, payload=payload)
+            results.append(result)
+            _emit_event(
+                config,
+                "file_finished",
+                {
+                    "platform_id": config.platform_id,
+                    "index": index,
+                    "total": len(files),
+                    "result": "success",
+                    "output_path": str(published),
+                    "timing": dict(result.timing),
+                    "decrypt_detail_timing": dict(result.decrypt_detail_timing),
+                    "payload": dict(payload),
+                },
+            )
             success_count += 1
         except Exception as exc:
             file_timing["total_sec"] = round(time.perf_counter() - file_started, 6)
             _accumulate(timing_batch_total, file_timing)
             logger.warning("failed: %s reason=%s", file_path.name, exc)
             logger.info("[timing] file_done [%d/%d] %s reason=%s %s", index, len(files), file_path.name, exc, timing_text(file_timing))
-            results.append(FileResult(ok=False, skipped=False, platform_id=config.platform_id, input_path=str(file_path), reason=str(exc), timing=_copy_timing(file_timing)))
+            result = FileResult(ok=False, skipped=False, platform_id=config.platform_id, input_path=str(file_path), reason=str(exc), timing=_copy_timing(file_timing))
+            results.append(result)
+            _emit_event(
+                config,
+                "file_finished",
+                {
+                    "platform_id": config.platform_id,
+                    "index": index,
+                    "total": len(files),
+                    "result": "failed",
+                    "reason": str(exc),
+                    "timing": dict(result.timing),
+                },
+            )
             failed_count += 1
 
     timed_file_count = len(files) if files else 1
@@ -277,6 +362,23 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
     logger.info("batch_result_code=%s", result_code)
     logger.info("batch_report_json=%s", batch_json)
     logger.info("batch_report_txt=%s", batch_txt)
+    _emit_event(
+        config,
+        "batch_finished",
+        {
+            "platform_id": config.platform_id,
+            "result_code": result_code,
+            "success_count": success_count,
+            "skipped_count": skipped_count,
+            "failed_count": failed_count,
+            "candidate_count": len(files),
+            "timing_batch_total": dict(timing_batch_total),
+            "timing_batch_avg": dict(timing_batch_avg),
+            "timing_hotspot_stage": dict(timing_hotspot_stage),
+            "batch_report_json": str(batch_json),
+            "batch_report_txt": str(batch_txt),
+        },
+    )
     try:
         shutil.rmtree(work_dir, ignore_errors=True)
     except Exception:

@@ -6,6 +6,7 @@ from typing import Any, Callable, Protocol
 
 
 TIMING_STAGE_KEYS = ("scan_sec", "dedupe_sec", "decrypt_sec", "transcode_sec", "publish_sec", "total_sec")
+RunEventSink = Callable[[str, dict[str, Any]], None]
 
 
 class PlatformAdapter(Protocol):
@@ -31,6 +32,7 @@ class BatchRunConfig:
     settings: dict[str, Any]
     interactive: bool = False
     collision_resolver: Callable[[str, str, str | None], str] | None = None
+    event_sink: RunEventSink | None = None
 
 
 @dataclass(slots=True)

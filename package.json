@@ -1,10 +1,22 @@
-﻿{
+{
   "name": "qkkdecrypt",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "QKKDecrypt packaging entry",
+  "description": "QKKDecrypt packaging and release entry",
   "scripts": {
     "package": "node .\\script\\package.js",
-    "build:native": "powershell -ExecutionPolicy Bypass -File .\\native\\build_native.ps1"
+    "build:console": "node .\\script\\build-console.js",
+    "build:ui": "node .\\script\\build-ui.js",
+    "build:native": "powershell -ExecutionPolicy Bypass -File .\\native\\build_native.ps1",
+    "release": "semantic-release"
+  },
+  "devDependencies": {
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/exec": "^7.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/github": "^11.0.4",
+    "@semantic-release/release-notes-generator": "^14.1.0",
+    "semantic-release": "^24.2.3"
   }
 }

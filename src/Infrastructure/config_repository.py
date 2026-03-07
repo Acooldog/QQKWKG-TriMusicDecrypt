@@ -13,6 +13,9 @@ PROJECT_NAME_EN = "QKKDecrypt"
 PROJECT_NAME_ZH = "QQ酷狗酷我音乐解密工具"
 PROJECT_ADDRESS = r"O:\A_python\A_QKKd"
 PROJECT_QQ = "2622138410"
+QQMUSIC_ATTRIBUTION = "QQ音乐解密模型思路参考: https://github.com/luyikk/qqmusic_decrypt"
+LEGAL_NOTICE = "仅供学习交流使用，严禁倒卖，严禁商用。"
+FLET_NOTE = "main-ui 分支使用 Flet，本地 Python 后端与 Flutter 前端协同运行。"
 DEFAULT_KUGOU_INPUT = pathlib.Path(r"O:\KuGou\KugouMusic")
 DEFAULT_KUWO_INPUT = pathlib.Path(r"C:\Users\01080\Documents\Frontier Developments\Planet Coaster\UserMusic\MusicPack")
 DEFAULT_QQ_INPUT = pathlib.Path("")
@@ -151,12 +154,13 @@ def build_banner(paths: RuntimePaths) -> str:
         f"{PROJECT_NAME_EN} | {PROJECT_NAME_ZH}\n"
         f"项目地址: {PROJECT_ADDRESS}\n"
         f"QQ: {PROJECT_QQ}\n"
-        "严禁倒卖，严禁商用。"
+        f"{LEGAL_NOTICE}\n"
+        f"{QQMUSIC_ATTRIBUTION}"
     )
 
 
 def format_help_epilog(paths: RuntimePaths) -> str:
-    return f"项目地址: {PROJECT_ADDRESS} | QQ: {PROJECT_QQ} | 严禁倒卖 | 严禁商用"
+    return f"项目地址: {PROJECT_ADDRESS} | QQ: {PROJECT_QQ} | {LEGAL_NOTICE}"
 
 
 def validate_target_format(value: str) -> str:

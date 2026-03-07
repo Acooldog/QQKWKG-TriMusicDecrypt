@@ -1,96 +1,182 @@
-﻿const fs = require("fs");
+const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
+const {
+  capture,
+  cleanDir,
+  copyRecursive,
+  ensureDir,
+  ensureEmptyDir,
+  ensureFile,
+  fail,
+  locateIscc,
+  resolvePythonExe,
+  run,
+} = require("./build-lib");
 
 const rootDir = path.resolve(__dirname, "..");
+const packageJson = JSON.parse(fs.readFileSync(path.join(rootDir, "package.json"), "utf8"));
+const releaseDir = path.join(rootDir, "release");
 const distDir = path.join(rootDir, "dist");
 const buildDir = path.join(rootDir, "build");
-const appName = "QKKDecrypt";
-const pythonExe = path.join(rootDir, ".venv", "Scripts", "python.exe");
-const mainPy = path.join(rootDir, "main.py");
-const assetsDir = path.join(rootDir, "assets");
-const kuwoRuntimeDir = path.join(rootDir, "src", "Infrastructure", "platforms", "kuwo", "runtime_m");
+const uiDistDir = path.join(distDir, "ui");
+const uiBuildDir = path.join(buildDir, "ui");
+const consoleDistDir = path.join(distDir, "console");
+const consoleBuildDir = path.join(buildDir, "console");
+const uiWorktreeDir = path.join(os.tmpdir(), "A_QKKd_main_ui_worktree");
+const pythonExe = resolvePythonExe(rootDir);
+const consoleExeName = "QKKDecrypt.exe";
+const uiAppName = "QKKDecrypt-UI";
+const uiSetupName = "QKKDecrypt-UI-setup";
 
-function fail(message) {
-  console.error(message);
-  process.exit(1);
+function currentBranchName(repoDir) {
+  return capture("git", ["branch", "--show-current"], { cwd: repoDir }).trim();
 }
 
-function ensureFile(filePath, label) {
-  if (!fs.existsSync(filePath)) {
-    fail(`Missing ${label}: ${filePath}`);
+function localBranchExists(repoDir, branchName) {
+  try {
+    capture("git", ["show-ref", "--verify", `refs/heads/${branchName}`], { cwd: repoDir });
+    return true;
+  } catch (error) {
+    return false;
   }
 }
 
-function ensureDir(dirPath, label) {
-  if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
-    fail(`Missing ${label}: ${dirPath}`);
+function remoteBranchExists(repoDir, remoteRef) {
+  try {
+    capture("git", ["show-ref", "--verify", remoteRef], { cwd: repoDir });
+    return true;
+  } catch (error) {
+    return false;
   }
 }
 
-function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
-    stdio: "inherit",
+function ensureMainUiBranch() {
+  if (localBranchExists(rootDir, "main-ui")) {
+    return;
+  }
+  const remoteCandidates = [
+    "refs/remotes/origin/main-ui",
+    "refs/remotes/githubQKK/main-ui",
+    "refs/remotes/giteeQKK/main-ui",
+  ];
+  for (const remoteRef of remoteCandidates) {
+    if (remoteBranchExists(rootDir, remoteRef)) {
+      run("git", ["branch", "main-ui", remoteRef], { cwd: rootDir });
+      return;
+    }
+  }
+  fail("Local branch 'main-ui' not found. Create and commit the UI branch before packaging.");
+}
+
+function removeWorktreeIfPresent(worktreePath) {
+  spawnSync("git", ["worktree", "remove", "--force", worktreePath], {
     cwd: rootDir,
+    stdio: "ignore",
     shell: false,
-    ...options,
   });
-  if (result.status !== 0) {
-    fail(`Command failed: ${command} ${args.join(" ")}`);
-  }
+  cleanDir(worktreePath);
 }
 
-function ensureExternalRuntimeDirs(appDir) {
-  for (const name of ["plugins", "_log", "output"]) {
-    fs.mkdirSync(path.join(appDir, name), { recursive: true });
-  }
+function addUiWorktree() {
+  removeWorktreeIfPresent(uiWorktreeDir);
+  run("git", ["worktree", "add", "--force", uiWorktreeDir, "main-ui"], { cwd: rootDir });
 }
 
-ensureFile(pythonExe, "venv python");
-ensureFile(mainPy, "main entry");
-ensureDir(assetsDir, "assets directory");
-ensureDir(kuwoRuntimeDir, "kuwo runtime directory");
-ensureFile(path.join(assetsDir, "kugou_key.xz"), "kugou_key.xz");
-ensureFile(path.join(assetsDir, "kudog_native.dll"), "kudog_native.dll");
-ensureFile(path.join(assetsDir, "ffmpeg-win-x86_64-v7.1.exe"), "bundled ffmpeg");
-ensureFile(path.join(kuwoRuntimeDir, "kwm_export_agent.js"), "kwm_export_agent.js");
-ensureFile(path.join(kuwoRuntimeDir, "out", "recovered_signature.json"), "kuwo recovered signature");
+function runNativeBuild(repoDir) {
+  run(
+    "powershell",
+    ["-ExecutionPolicy", "Bypass", "-File", path.join(repoDir, "native", "build_native.ps1")],
+    {
+      cwd: repoDir,
+      env: { ...process.env },
+    },
+  );
+}
 
-run(pythonExe, ["-m", "PyInstaller", "--version"]);
+function buildConsole() {
+  runNativeBuild(rootDir);
+  run("node", [path.join(rootDir, "script", "build-console.js"), "--dist-root", consoleDistDir, "--build-root", consoleBuildDir], {
+    cwd: rootDir,
+    env: { ...process.env, QKK_PYTHON_EXE: pythonExe },
+  });
+  const builtConsoleExe = path.join(consoleDistDir, consoleExeName);
+  ensureFile(builtConsoleExe, "console build");
+  fs.copyFileSync(builtConsoleExe, path.join(releaseDir, consoleExeName));
+}
 
-const args = [
-  "-m",
-  "PyInstaller",
-  "--noconfirm",
-  "--clean",
-  "--onedir",
-  "--name",
-  appName,
-  "--contents-directory",
-  "_internal",
-  "--distpath",
-  distDir,
-  "--workpath",
-  buildDir,
-  "--specpath",
-  buildDir,
-  "--paths",
-  rootDir,
-  "--collect-submodules",
-  "src",
-  "--collect-all",
-  "frida",
-  "--add-data",
-  `${assetsDir};assets`,
-  "--add-data",
-  `${kuwoRuntimeDir};src/Infrastructure/platforms/kuwo/runtime_m`,
-  mainPy,
-];
+function buildUi() {
+  addUiWorktree();
+  runNativeBuild(uiWorktreeDir);
+  run("node", [path.join(uiWorktreeDir, "script", "build-ui.js"), "--dist-root", uiDistDir, "--build-root", uiBuildDir], {
+    cwd: uiWorktreeDir,
+    env: { ...process.env, QKK_PYTHON_EXE: pythonExe },
+  });
+  const appDir = path.join(uiDistDir, uiAppName);
+  ensureDir(appDir, "ui dist app directory");
+  return appDir;
+}
 
-run(pythonExe, args);
+function compileUiSetup(appDir) {
+  const isccExe = locateIscc();
+  if (!isccExe) {
+    fail("Inno Setup (ISCC.exe) not found. Install Inno Setup 6 before packaging UI.");
+  }
+  const scriptPath = path.join(buildDir, "ui-installer.iss");
+  const iss = `
+[Setup]
+AppId={{DFB7B7A5-50CE-4B9A-9A61-84C42EECAD0E}}
+AppName=QKKDecrypt UI
+AppVersion=${packageJson.version}
+AppPublisher=Acooldog
+DefaultDirName={autopf}\\QKKDecrypt UI
+DefaultGroupName=QKKDecrypt UI
+DisableProgramGroupPage=yes
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+OutputDir=${releaseDir.replace(/\\/g, "\\\\")}
+OutputBaseFilename=${uiSetupName}
+Compression=lzma
+SolidCompression=yes
+WizardStyle=modern
+PrivilegesRequired=lowest
 
-const appDir = path.join(distDir, appName);
-const builtExe = path.join(appDir, `${appName}.exe`);
-ensureFile(builtExe, "built executable");
-ensureExternalRuntimeDirs(appDir);
-console.log(`Build completed: ${builtExe}`);
+[Files]
+Source: "${appDir.replace(/\\/g, "\\\\")}\\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+
+[Icons]
+Name: "{autoprograms}\\QKKDecrypt UI"; Filename: "{app}\\${uiAppName}.exe"
+Name: "{autodesktop}\\QKKDecrypt UI"; Filename: "{app}\\${uiAppName}.exe"; Tasks: desktopicon
+
+[Tasks]
+Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务:"
+
+[Run]
+Filename: "{app}\\${uiAppName}.exe"; Description: "启动 QKKDecrypt UI"; Flags: nowait postinstall skipifsilent
+`.trim();
+  fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+  fs.writeFileSync(scriptPath, iss, "utf8");
+  run(isccExe, [scriptPath], { cwd: rootDir });
+  ensureFile(path.join(releaseDir, `${uiSetupName}.exe`), "ui setup");
+}
+
+function main() {
+  if (currentBranchName(rootDir) !== "main") {
+    fail("Packaging must be run from the 'main' branch.");
+  }
+  ensureMainUiBranch();
+  ensureEmptyDir(releaseDir);
+  fs.mkdirSync(distDir, { recursive: true });
+  fs.mkdirSync(buildDir, { recursive: true });
+
+  buildConsole();
+  const uiAppDir = buildUi();
+  compileUiSetup(uiAppDir);
+  removeWorktreeIfPresent(uiWorktreeDir);
+
+  const finalAssets = fs.readdirSync(releaseDir).sort();
+  console.log(`Release assets ready: ${finalAssets.join(", ")}`);
+}
+
+main();
