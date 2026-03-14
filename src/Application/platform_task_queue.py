@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import pathlib
 import threading
@@ -305,6 +305,24 @@ class PlatformTaskQueue:
             return f"封面写入失败：{message or '未知错误'}"
         return message or f"封面处理状态：{status}"
 
+    def _metadata_message(self, status: str, payload: dict[str, Any]) -> str:
+        source = str(payload.get("source", "") or "").strip()
+        fields = [str(item).strip() for item in (payload.get("updated_fields") or []) if str(item).strip()]
+        message = str(payload.get("message", "") or "").strip()
+        if status == "embedded":
+            field_text = "、".join(fields) if fields else "专辑信息"
+            source_label = {"local": "本地信息", "network": "网络兜底"}.get(source, source or "可用信息")
+            return f"已补全 {field_text}（{source_label}）"
+        if status == "already_present":
+            return "专辑信息已完整"
+        if status == "disabled":
+            return "已按设置跳过专辑信息补全"
+        if status == "not_found":
+            return "未找到可补全的专辑信息"
+        if status == "unsupported":
+            return "当前输出格式不支持专辑信息补全"
+        return message or f"专辑信息处理状态：{status}"
+
     def _handle_event(self, platform_id: str, event_name: str, payload: dict[str, Any]) -> None:
         with self._lock:
             task = self._tasks.get(platform_id)
@@ -335,6 +353,14 @@ class PlatformTaskQueue:
             elif event_name == "cover_finished":
                 task.current_file = str(payload.get("output_path", "") or payload.get("input_path", "") or task.current_file)
                 task.message = self._cover_message(str(payload.get("status", "") or ""), payload)
+            elif event_name == "metadata_started":
+                task.current_file = str(payload.get("output_path", "") or payload.get("input_path", "") or task.current_file)
+                task.current_index = int(payload.get("index", task.current_index) or task.current_index)
+                task.current_total = int(payload.get("total", task.current_total) or task.current_total)
+                task.message = str(payload.get("message", "") or "正在补专辑信息（本地优先，可能会变慢）")
+            elif event_name == "metadata_finished":
+                task.current_file = str(payload.get("output_path", "") or payload.get("input_path", "") or task.current_file)
+                task.message = self._metadata_message(str(payload.get("status", "") or ""), payload)
             elif event_name == "file_finished":
                 result = str(payload.get("result", "") or "")
                 detail_payload = dict(payload.get("payload", {}) or {})

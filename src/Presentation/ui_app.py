@@ -555,6 +555,44 @@ class MainWindow(QWidget):
         shared_layout.addWidget(shared_title)
         self.output_field = PathField("共享输出目录", directory=True)
         self.recursive_checkbox = QCheckBox("递归扫描子目录")
+        self.cover_mode_group = QButtonGroup(shared_card)
+        self.cover_enable_radio = QRadioButton("自动补封面")
+        self.cover_disable_radio = QRadioButton("不添加封面")
+        self.cover_mode_group.addButton(self.cover_enable_radio)
+        self.cover_mode_group.addButton(self.cover_disable_radio)
+        self.cover_note = QLabel("提示：封面补写对 QQ、酷我和酷狗都生效。会优先查本地图片和缓存，必要时才联网，可能会明显变慢。")
+        self.cover_note.setObjectName("MutedText")
+        self.cover_note.setWordWrap(True)
+
+        self.album_mode_group = QButtonGroup(shared_card)
+        self.album_enable_radio = QRadioButton("补充专辑信息")
+        self.album_disable_radio = QRadioButton("不补充专辑信息")
+        self.album_mode_group.addButton(self.album_enable_radio)
+        self.album_mode_group.addButton(self.album_disable_radio)
+        self.album_note = QLabel("提示：专辑信息补全目前仅对 m4a 和 wav 生效，因为其他格式自带信息，优先使用本地已有信息，缺失时才会网络兜底。会变慢大约5倍")
+        self.album_note.setObjectName("MutedText")
+        self.album_note.setWordWrap(True)
+
+        cover_row = QHBoxLayout()
+        cover_row.setContentsMargins(0, 0, 0, 0)
+        cover_row.setSpacing(14)
+        cover_label = QLabel("封面处理")
+        cover_label.setObjectName("FieldLabel")
+        cover_row.addWidget(cover_label)
+        cover_row.addWidget(self.cover_enable_radio)
+        cover_row.addWidget(self.cover_disable_radio)
+        cover_row.addStretch(1)
+
+        album_row = QHBoxLayout()
+        album_row.setContentsMargins(0, 0, 0, 0)
+        album_row.setSpacing(14)
+        album_label = QLabel("专辑信息")
+        album_label.setObjectName("FieldLabel")
+        album_row.addWidget(album_label)
+        album_row.addWidget(self.album_enable_radio)
+        album_row.addWidget(self.album_disable_radio)
+        album_row.addStretch(1)
+
         action_row = QHBoxLayout()
         action_row.setContentsMargins(0, 0, 0, 0)
         action_row.setSpacing(10)
@@ -570,6 +608,10 @@ class MainWindow(QWidget):
         action_row.addStretch(1)
         shared_layout.addWidget(self.output_field)
         shared_layout.addWidget(self.recursive_checkbox)
+        shared_layout.addLayout(cover_row)
+        shared_layout.addWidget(self.cover_note)
+        shared_layout.addLayout(album_row)
+        shared_layout.addWidget(self.album_note)
         shared_layout.addLayout(action_row)
         body_layout.addWidget(shared_card)
 
@@ -581,12 +623,6 @@ class MainWindow(QWidget):
         qq_card.add_format_combo("mflac", "mflac 输出格式", QQ_RULE_FORMATS)
         qq_card.add_format_combo("mgg", "mgg 输出格式", QQ_RULE_FORMATS)
         qq_card.add_format_combo("mmp4", "mmp4 输出格式", QQ_RULE_FORMATS)
-        qq_card.add_radio_group(
-            "embed_cover_art",
-            "封面处理",
-            [("embed", "自动补封面"), ("skip", "不添加封面")],
-            "提示：自动补封面会优先查找本地图片和缓存，必要时才会联网，可能会导致转换明显变慢。",
-        )
         cards_row.addWidget(qq_card, 1)
         self._cards["qq"] = qq_card
 
@@ -666,6 +702,14 @@ class MainWindow(QWidget):
         self.output_field.setText(
             str(shared.get("output_dir", self.paths.output_dir)))
         self.recursive_checkbox.setChecked(bool(shared.get("recursive", True)))
+        if bool(shared.get("embed_cover_art", True)):
+            self.cover_enable_radio.setChecked(True)
+        else:
+            self.cover_disable_radio.setChecked(True)
+        if bool(shared.get("supplement_album_metadata", False)):
+            self.album_enable_radio.setChecked(True)
+        else:
+            self.album_disable_radio.setChecked(True)
 
         qq = self.config["qq"]
         self._cards["qq"].input_field.setText(str(qq.get("input_dir", "")))
@@ -675,11 +719,6 @@ class MainWindow(QWidget):
             (qq.get("format_rules") or {}).get("mgg", "m4a")))
         self._cards["qq"].set_format_value("mmp4", str(
             (qq.get("format_rules") or {}).get("mmp4", "m4a")))
-        self._cards["qq"].set_radio_value(
-            "embed_cover_art",
-            "embed" if bool(qq.get("embed_cover_art", True)) else "skip",
-        )
-
         kuwo = self.config["kuwo"]
         self._cards["kuwo"].input_field.setText(str(kuwo.get("input_dir", "")))
         self._cards["kuwo"].set_format_value(
@@ -706,11 +745,12 @@ class MainWindow(QWidget):
             "output_dir": self.output_field.text() or str(self.paths.output_dir),
             "cli_collision_policy": "suffix",
             "recursive": self.recursive_checkbox.isChecked(),
+            "embed_cover_art": self.cover_enable_radio.isChecked(),
+            "supplement_album_metadata": self.album_enable_radio.isChecked(),
         }
         qq = {
             "input_dir": self._cards["qq"].input_field.text(),
             "process_match": "qqmusic",
-            "embed_cover_art": self._cards["qq"].radio_value("embed_cover_art") == "embed",
             "format_rules": {
                 "mflac": self._cards["qq"].format_value("mflac"),
                 "mgg": self._cards["qq"].format_value("mgg"),
@@ -770,6 +810,8 @@ class MainWindow(QWidget):
         output_dir = pathlib.Path(
             self.output_field.text() or str(self.paths.output_dir))
         settings = dict(self.config[platform_id])
+        settings["embed_cover_art"] = bool(self.config.get("shared", {}).get("embed_cover_art", True))
+        settings["supplement_album_metadata"] = bool(self.config.get("shared", {}).get("supplement_album_metadata", False))
         recursive = self.recursive_checkbox.isChecked()
         continuous = self._cards[platform_id].continuous_checkbox.isChecked()
         if not input_path.exists():
