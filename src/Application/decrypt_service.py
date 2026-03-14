@@ -70,6 +70,13 @@ def _cover_art_enabled(settings: dict[str, Any]) -> bool:
     return bool(value)
 
 
+def _album_metadata_enabled(settings: dict[str, Any]) -> bool:
+    value = settings.get("supplement_album_metadata", False)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return bool(value)
+
+
 def _maybe_attach_cover(
     logger: logging.Logger,
     config: BatchRunConfig,
@@ -139,6 +146,85 @@ def _maybe_attach_cover(
             "output_path": str(output_path),
             "status": result.status,
             "source": result.source or "",
+            "message": result.message,
+        },
+    )
+
+
+def _maybe_supplement_album_metadata(
+    logger: logging.Logger,
+    config: BatchRunConfig,
+    cover_service: CoverArtService,
+    source_path: pathlib.Path,
+    output_path: pathlib.Path,
+    *,
+    index: int,
+    total_count: int,
+) -> None:
+    if output_path.suffix.lower() not in {".m4a", ".wav"}:
+        return
+    if not _album_metadata_enabled(config.settings):
+        logger.info("album_metadata_skipped: %s reason=disabled_by_user", output_path.name)
+        _emit_event(
+            config,
+            "metadata_finished",
+            {
+                "platform_id": config.platform_id,
+                "index": index,
+                "total": total_count,
+                "input_path": str(source_path),
+                "output_path": str(output_path),
+                "status": "disabled",
+                "message": "已按设置跳过专辑信息补全",
+            },
+        )
+        return
+    logger.info(
+        "metadata_supplementing: %s source=%s mode=local_first cache_then_network may_be_slow=true",
+        output_path.name,
+        source_path.name,
+    )
+    _emit_event(
+        config,
+        "metadata_started",
+        {
+            "platform_id": config.platform_id,
+            "index": index,
+            "total": total_count,
+            "input_path": str(source_path),
+            "output_path": str(output_path),
+            "message": "正在补专辑信息（本地优先，可能会变慢）",
+        },
+    )
+    summary_before = probe_media_summary(output_path)
+    result = cover_service.supplement_album_metadata(str(output_path), str(source_path), summary_before)
+    if result.status == "embedded":
+        logger.info(
+            "Album metadata supplemented: %s source=%s fields=%s | %s",
+            output_path.name,
+            result.source or "",
+            ",".join(result.updated_fields),
+            summary_to_log(probe_media_summary(output_path)),
+        )
+    elif result.status not in {"already_present", "unsupported"}:
+        logger.info(
+            "Album metadata not supplemented: %s status=%s message=%s",
+            output_path.name,
+            result.status,
+            result.message,
+        )
+    _emit_event(
+        config,
+        "metadata_finished",
+        {
+            "platform_id": config.platform_id,
+            "index": index,
+            "total": total_count,
+            "input_path": str(source_path),
+            "output_path": str(output_path),
+            "status": result.status,
+            "source": result.source or "",
+            "updated_fields": list(result.updated_fields),
             "message": result.message,
         },
     )
@@ -383,16 +469,24 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
                     final_extension,
                     file_timing,
                 )
-            if config.platform_id == "qq":
-                _maybe_attach_cover(
-                    logger,
-                    config,
-                    cover_service,
-                    file_path,
-                    working_path,
-                    index=index,
-                    total_count=len(files),
-                )
+            _maybe_attach_cover(
+                logger,
+                config,
+                cover_service,
+                file_path,
+                working_path,
+                index=index,
+                total_count=len(files),
+            )
+            _maybe_supplement_album_metadata(
+                logger,
+                config,
+                cover_service,
+                file_path,
+                working_path,
+                index=index,
+                total_count=len(files),
+            )
             final_summary = _log_media_summary(logger, "Final media summary", working_path)
             summary_error = _validate_summary(logger, "Final publish", working_path, final_summary)
             if summary_error:

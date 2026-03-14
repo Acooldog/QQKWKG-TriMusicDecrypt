@@ -6,12 +6,13 @@ import logging
 import pathlib
 import re
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from mutagen.flac import FLAC, Picture
-from mutagen.id3 import APIC, ID3, ID3NoHeaderError
+from mutagen.id3 import APIC, ID3, ID3NoHeaderError, TALB, TIT2, TPE1
 from mutagen.mp4 import MP4, MP4Cover
+from mutagen.wave import WAVE
 
 from src.Infrastructure.runtime_paths import RuntimePaths
 
@@ -27,18 +28,29 @@ class CoverArtResult:
     source: str | None = None
 
 
+@dataclass(slots=True)
+class AlbumMetadataResult:
+    status: str
+    message: str
+    source: str | None = None
+    updated_fields: tuple[str, ...] = field(default_factory=tuple)
+
+
 class CoverArtService:
-    """Supplement cover art with a local-first strategy and QQ network fallback."""
+    """Supplement cover art and album metadata with a local-first strategy."""
 
     SEARCH_ENDPOINT = "https://u.y.qq.com/cgi-bin/musicu.fcg"
     COVER_URL_TEMPLATE = "https://y.gtimg.cn/music/photo_new/T002R500x500M000{albummid}.jpg"
     IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
     SUPPORTED_AUDIO_EXTENSIONS = {".mp3", ".m4a", ".flac"}
+    ALBUM_METADATA_EXTENSIONS = {".m4a", ".wav"}
 
     def __init__(self) -> None:
         self.paths = RuntimePaths.discover()
         self.cache_dir = self.paths.plugins_dir / "cover_cache"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self._search_cache: dict[str, dict[str, str] | None] = {}
+        self._download_cache: dict[str, pathlib.Path | None] = {}
 
     def supplement_cover(
         self,
@@ -86,6 +98,51 @@ class CoverArtService:
         if self._embed_cover(audio, downloaded):
             return CoverArtResult("embedded", "embedded cover from QQ network fallback", str(downloaded), "network")
         return CoverArtResult("embed_failed", "failed to embed downloaded cover", str(downloaded), "network")
+
+    def supplement_album_metadata(
+        self,
+        audio_path: str | pathlib.Path,
+        source_file_path: str | pathlib.Path,
+        media_summary: dict[str, Any] | None = None,
+    ) -> AlbumMetadataResult:
+        audio = pathlib.Path(audio_path)
+        source = pathlib.Path(source_file_path)
+        audio_ext = audio.suffix.lower()
+        if audio_ext not in self.ALBUM_METADATA_EXTENSIONS:
+            return AlbumMetadataResult(
+                status="unsupported",
+                message=f"album metadata supplementation is not supported for {audio_ext or 'unknown'}",
+            )
+
+        current = self._extract_music_identity(audio, source, media_summary or {})
+        title, artist, album = current
+        if title and artist and album:
+            return AlbumMetadataResult(status="already_present", message="album metadata already present", source="local")
+
+        search_result = self._search_cover_online(title, artist)
+        if not search_result:
+            return AlbumMetadataResult(status="not_found", message="album metadata was not found locally or online")
+
+        target_title = title or str(search_result.get("title") or "").strip()
+        target_artist = artist or str(search_result.get("artist") or "").strip()
+        target_album = album or str(search_result.get("album") or "").strip()
+        updated_fields = self._embed_album_metadata(
+            audio_path=audio,
+            title=target_title,
+            artist=target_artist,
+            album=target_album,
+            current_title=title,
+            current_artist=artist,
+            current_album=album,
+        )
+        if updated_fields:
+            return AlbumMetadataResult(
+                status="embedded",
+                message="album metadata supplemented",
+                source="network" if not album else "local",
+                updated_fields=tuple(updated_fields),
+            )
+        return AlbumMetadataResult(status="already_present", message="album metadata already present", source="local")
 
     def _extract_music_identity(
         self,
@@ -157,9 +214,13 @@ class CoverArtService:
         return hashlib.sha1(basis.encode("utf-8")).hexdigest()
 
     def _find_cached_cover(self, cache_key: str) -> pathlib.Path | None:
+        cached = self._download_cache.get(cache_key)
+        if cached is not None and cached.exists():
+            return cached
         for ext in (".jpg", ".jpeg", ".png", ".webp"):
             candidate = self.cache_dir / f"{cache_key}{ext}"
             if candidate.exists() and candidate.is_file():
+                self._download_cache[cache_key] = candidate
                 return candidate
         return None
 
@@ -167,6 +228,10 @@ class CoverArtService:
         query = " ".join(part for part in (title, artist) if part).strip()
         if not query:
             return None
+
+        query_key = self._cache_key(title, artist, "")
+        if query_key in self._search_cache:
+            return self._search_cache[query_key]
 
         payload = {
             "comm": {"ct": "19", "cv": "1859", "uin": "0"},
@@ -182,10 +247,11 @@ class CoverArtService:
             headers={"Content-Type": "application/json;charset=utf-8", "User-Agent": "Mozilla/5.0"},
         )
         try:
-            with urllib.request.urlopen(request, timeout=20) as response:
+            with urllib.request.urlopen(request, timeout=12) as response:
                 data = json.load(response)
         except Exception:
             logger.exception("QQ cover search failed for query=%s", query)
+            self._search_cache[query_key] = None
             return None
 
         song_list = (((data.get("req") or {}).get("data") or {}).get("body") or {}).get("song") or {}
@@ -198,13 +264,28 @@ class CoverArtService:
                 best = item
                 best_score = score
         if not best or best_score < 2:
+            self._search_cache[query_key] = None
             return None
 
         album = best.get("album") or {}
         albummid = album.get("mid")
         if not albummid:
+            self._search_cache[query_key] = None
             return None
-        return {"albummid": str(albummid)}
+        singers = best.get("singer") or []
+        singer_names = " / ".join(
+            str(singer.get("name") or "").strip()
+            for singer in singers
+            if isinstance(singer, dict) and str(singer.get("name") or "").strip()
+        )
+        result = {
+            "albummid": str(albummid),
+            "album": str(album.get("name") or "").strip(),
+            "title": str(best.get("name") or "").strip(),
+            "artist": singer_names,
+        }
+        self._search_cache[query_key] = result
+        return result
 
     def _score_search_item(self, item: dict[str, Any], title: str, artist: str) -> int:
         item_title = self._normalize_compare_text(str(item.get("name") or ""))
@@ -232,17 +313,26 @@ class CoverArtService:
         return lowered
 
     def _download_cover_image(self, albummid: str, cache_key: str) -> pathlib.Path | None:
+        cached = self._download_cache.get(cache_key)
+        if cached is not None and cached.exists():
+            return cached
+        existing = self._find_cached_cover(cache_key)
+        if existing is not None:
+            return existing
         url = self.COVER_URL_TEMPLATE.format(albummid=albummid)
         cache_path = self.cache_dir / f"{cache_key}.jpg"
         try:
-            with urllib.request.urlopen(url, timeout=20) as response:
+            with urllib.request.urlopen(url, timeout=12) as response:
                 data = response.read()
             if not data:
+                self._download_cache[cache_key] = None
                 return None
             cache_path.write_bytes(data)
+            self._download_cache[cache_key] = cache_path
             return cache_path
         except Exception:
             logger.exception("Failed to download cover art: %s", url)
+            self._download_cache[cache_key] = None
             return None
 
     def _embed_cover(self, audio_path: pathlib.Path, image_path: pathlib.Path) -> bool:
@@ -255,7 +345,7 @@ class CoverArtService:
             if suffix == ".mp3":
                 return self._embed_mp3(audio_path, image_bytes, mime)
             if suffix == ".m4a":
-                return self._embed_m4a(audio_path, image_bytes, picture_type)
+                return self._embed_m4a_cover(audio_path, image_bytes, picture_type)
             if suffix == ".flac":
                 return self._embed_flac(audio_path, image_bytes, mime)
             return False
@@ -283,7 +373,7 @@ class CoverArtService:
         return True
 
     @staticmethod
-    def _embed_m4a(audio_path: pathlib.Path, image_bytes: bytes, picture_type: int | None) -> bool:
+    def _embed_m4a_cover(audio_path: pathlib.Path, image_bytes: bytes, picture_type: int | None) -> bool:
         if picture_type is None:
             return False
         audio = MP4(str(audio_path))
@@ -305,3 +395,53 @@ class CoverArtService:
         audio.add_picture(picture)
         audio.save()
         return True
+
+    def _embed_album_metadata(
+        self,
+        *,
+        audio_path: pathlib.Path,
+        title: str,
+        artist: str,
+        album: str,
+        current_title: str,
+        current_artist: str,
+        current_album: str,
+    ) -> list[str]:
+        suffix = audio_path.suffix.lower()
+        updated_fields: list[str] = []
+        if suffix == ".m4a":
+            audio = MP4(str(audio_path))
+            if audio.tags is None:
+                audio.add_tags()
+            if title and not current_title:
+                audio.tags["\xa9nam"] = [title]
+                updated_fields.append("title")
+            if artist and not current_artist:
+                audio.tags["\xa9ART"] = [artist]
+                updated_fields.append("artist")
+            if album and not current_album:
+                audio.tags["\xa9alb"] = [album]
+                updated_fields.append("album")
+            if updated_fields:
+                audio.save()
+            return updated_fields
+        if suffix == ".wav":
+            audio = WAVE(str(audio_path))
+            if audio.tags is None:
+                audio.add_tags()
+            if title and not current_title:
+                audio.tags.delall("TIT2")
+                audio.tags.add(TIT2(encoding=3, text=[title]))
+                updated_fields.append("title")
+            if artist and not current_artist:
+                audio.tags.delall("TPE1")
+                audio.tags.add(TPE1(encoding=3, text=[artist]))
+                updated_fields.append("artist")
+            if album and not current_album:
+                audio.tags.delall("TALB")
+                audio.tags.add(TALB(encoding=3, text=[album]))
+                updated_fields.append("album")
+            if updated_fields:
+                audio.save()
+            return updated_fields
+        return updated_fields

@@ -128,6 +128,8 @@ def _run_platform(platform_id: str, config: dict, *, input_override: str | None 
     adapter = build_platform_adapter(platform_id)
     shared = dict(config["shared"])
     settings = dict(config[platform_id])
+    settings["embed_cover_art"] = bool(shared.get("embed_cover_art", True))
+    settings["supplement_album_metadata"] = bool(shared.get("supplement_album_metadata", False))
     input_path = pathlib.Path(input_override or settings.get("input_dir") or "")
     output_dir = pathlib.Path(output_override or shared.get("output_dir") or paths.output_dir)
     recursive = _shared_recursive(config) if recursive_override is None else recursive_override
@@ -183,6 +185,14 @@ def run_interactive() -> int:
     input_dir = pathlib.Path(prompt_with_default("输入文件或目录", str(settings.get("input_dir", ""))))
     output_dir = pathlib.Path(prompt_with_default("共享输出目录", str(shared.get("output_dir", paths.output_dir))))
     recursive = prompt_bool("递归扫描子目录", bool(shared.get("recursive", True)))
+    shared["embed_cover_art"] = prompt_bool(
+        "是否自动补封面（所有平台共用，可能会导致转换明显变慢）",
+        bool(shared.get("embed_cover_art", True)),
+    )
+    shared["supplement_album_metadata"] = prompt_bool(
+        "是否补充专辑信息（仅对 m4a/wav 生效，优先本地后网络）",
+        bool(shared.get("supplement_album_metadata", False)),
+    )
 
     if platform_id == "qq":
         rules = dict(settings.get("format_rules", {}))
@@ -190,10 +200,6 @@ def run_interactive() -> int:
         rules["mgg"] = prompt_choice("mgg 输出格式 flac/m4a/mp3/wav", str(rules.get("mgg", "m4a")), supported_transcode_formats())
         rules["mmp4"] = prompt_choice("mmp4 输出格式 flac/m4a/mp3/wav", str(rules.get("mmp4", "m4a")), supported_transcode_formats())
         settings["format_rules"] = rules
-        settings["embed_cover_art"] = prompt_bool(
-            "是否自动补封面（可能会导致转换明显变慢）",
-            bool(settings.get("embed_cover_art", True)),
-        )
     elif platform_id == "kuwo":
         settings["format_kwm"] = prompt_choice("kwm 输出格式 auto/flac/m4a/mp3/wav", str(settings.get("format_kwm", "auto")), supported_transcode_formats())
         settings["signature_file"] = str(default_kuwo_signature_path(paths))
@@ -205,6 +211,7 @@ def run_interactive() -> int:
             settings["key_file"] = str(auto_key)
 
     config[platform_id].update(settings)
+    config["shared"].update(shared)
     config[platform_id]["input_dir"] = str(input_dir)
     config["shared"]["output_dir"] = str(output_dir)
     config["shared"]["recursive"] = recursive
@@ -232,10 +239,6 @@ def build_parser(paths: RuntimePaths) -> argparse.ArgumentParser:
             dec.add_argument("--format-mflac", choices=[item for item in supported_transcode_formats() if item != "auto"], help="mflac 输出格式")
             dec.add_argument("--format-mgg", choices=[item for item in supported_transcode_formats() if item != "auto"], help="mgg 输出格式")
             dec.add_argument("--format-mmp4", choices=[item for item in supported_transcode_formats() if item != "auto"], help="mmp4 输出格式")
-            cover_group = dec.add_mutually_exclusive_group()
-            cover_group.add_argument("--embed-cover", dest="embed_cover_art", action="store_true", help="自动补封面，可能会导致转换变慢")
-            cover_group.add_argument("--no-embed-cover", dest="embed_cover_art", action="store_false", help="不自动补封面")
-            dec.set_defaults(embed_cover_art=None)
         elif platform_id == "kuwo":
             dec.add_argument("--format-kwm", choices=supported_transcode_formats(), help="kwm 输出格式")
             dec.add_argument("--exe-path", help="酷我 exe 路径")
@@ -245,6 +248,13 @@ def build_parser(paths: RuntimePaths) -> argparse.ArgumentParser:
             dec.add_argument("--key-file", help="kugou_key.xz 路径")
             dec.add_argument("--format-kgma", choices=supported_transcode_formats(), help="kgma/kgm/vpr 输出格式")
             dec.add_argument("--format-kgg", choices=supported_transcode_formats(), help="kgg 输出格式")
+        cover_group = dec.add_mutually_exclusive_group()
+        cover_group.add_argument("--embed-cover", dest="embed_cover_art", action="store_true", help="自动补封面（所有平台共用），可能会导致转换变慢")
+        cover_group.add_argument("--no-embed-cover", dest="embed_cover_art", action="store_false", help="不自动补封面")
+        album_group = dec.add_mutually_exclusive_group()
+        album_group.add_argument("--supplement-album", dest="supplement_album_metadata", action="store_true", help="补充专辑信息（m4a/wav）")
+        album_group.add_argument("--no-supplement-album", dest="supplement_album_metadata", action="store_false", help="不补充专辑信息")
+        dec.set_defaults(embed_cover_art=None, supplement_album_metadata=None)
     return parser
 
 
@@ -263,6 +273,10 @@ def main(argv: list[str] | None = None) -> int:
     _, config = load_config(paths)
     platform_id = args.platform
     settings = dict(config[platform_id])
+    if args.embed_cover_art is not None:
+        config["shared"]["embed_cover_art"] = bool(args.embed_cover_art)
+    if args.supplement_album_metadata is not None:
+        config["shared"]["supplement_album_metadata"] = bool(args.supplement_album_metadata)
     if platform_id == "qq":
         rules = dict(settings.get("format_rules", {}))
         for source_key, attr_name in (("mflac", "format_mflac"), ("mgg", "format_mgg"), ("mmp4", "format_mmp4")):
@@ -270,8 +284,6 @@ def main(argv: list[str] | None = None) -> int:
             if value:
                 rules[source_key] = validate_target_format(value)
         settings["format_rules"] = rules
-        if args.embed_cover_art is not None:
-            settings["embed_cover_art"] = bool(args.embed_cover_art)
     elif platform_id == "kuwo":
         if args.format_kwm:
             settings["format_kwm"] = validate_target_format(args.format_kwm)

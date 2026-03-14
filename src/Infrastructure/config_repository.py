@@ -14,7 +14,7 @@ PROJECT_NAME_ZH = "QQ酷狗酷我音乐解密工具"
 PROJECT_ADDRESS = "https://github.com/Acooldog/QQKWKG-TriMusicDecrypt"
 PROJECT_QQ = "2622138410"
 QQMUSIC_ATTRIBUTION = "QQ 音乐解密模型思路参考项目：qqmusic_decrypt（https://github.com/luyikk/qqmusic_decrypt）"
-LEGAL_NOTICE = "其他模型为自主逆向学习实现，仅供学习交流使用；禁止商用，禁止倒卖，倒卖者将举报平台并持续追责。"
+LEGAL_NOTICE = "其他模型为自主逆向学习实现，仅供学习交流使用；禁止商用，禁止倒卖，倒卖者将举报平台并持续追责。\n格式说明：m4a/mp3/flac 支持补封面；m4a/wav 支持补专辑信息，均优先本地后网络。"
 FLET_NOTE = "main-ui 分支采用 PySide6。PySide6 基于 Qt for Python，桌面界面由本地 Qt 窗口和 Python 业务逻辑直接驱动。"
 DEFAULT_KUGOU_INPUT = pathlib.Path(r"O:\KuGou\KugouMusic")
 DEFAULT_KUWO_INPUT = pathlib.Path(r"C:\Users\01080\Documents\Frontier Developments\Planet Coaster\UserMusic\MusicPack")
@@ -104,6 +104,8 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
             "output_dir": str(paths.output_dir),
             "cli_collision_policy": "suffix",
             "recursive": True,
+            "embed_cover_art": True,
+            "supplement_album_metadata": False,
         },
         "qq": {
             "input_dir": str(DEFAULT_QQ_INPUT),
@@ -130,6 +132,23 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
         value = payload.get(section)
         if isinstance(value, dict):
             config[section].update(value)
+    shared_payload = payload.get("shared") if isinstance(payload.get("shared"), dict) else {}
+    if "embed_cover_art" not in shared_payload and "embed_cover_art" in config["qq"]:
+        config["shared"]["embed_cover_art"] = config["qq"].get("embed_cover_art", True)
+    shared_embed_cover = config["shared"].get("embed_cover_art", True)
+    if isinstance(shared_embed_cover, str):
+        shared_embed_cover = shared_embed_cover.strip().lower() in {"1", "true", "yes", "y", "on"}
+    else:
+        shared_embed_cover = bool(shared_embed_cover)
+    config["shared"]["embed_cover_art"] = shared_embed_cover
+
+    shared_album_metadata = config["shared"].get("supplement_album_metadata", False)
+    if isinstance(shared_album_metadata, str):
+        shared_album_metadata = shared_album_metadata.strip().lower() in {"1", "true", "yes", "y", "on"}
+    else:
+        shared_album_metadata = bool(shared_album_metadata)
+    config["shared"]["supplement_album_metadata"] = shared_album_metadata
+
     format_rules = config["qq"].get("format_rules")
     if not isinstance(format_rules, dict):
         format_rules = {"mflac": "flac", "mgg": "m4a", "mmp4": "m4a"}
@@ -141,12 +160,6 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
             value = "m4a" if key != "mflac" else "flac"
         format_rules[key] = value
     config["qq"]["format_rules"] = format_rules
-    embed_cover_art = config["qq"].get("embed_cover_art", True)
-    if isinstance(embed_cover_art, str):
-        embed_cover_art = embed_cover_art.strip().lower() in {"1", "true", "yes", "y", "on"}
-    else:
-        embed_cover_art = bool(embed_cover_art)
-    config["qq"]["embed_cover_art"] = embed_cover_art
     config["shared"]["cli_collision_policy"] = str(config["shared"].get("cli_collision_policy", "suffix") or "suffix").lower()
     config["shared"]["recursive"] = bool(config["shared"].get("recursive", True))
     config["kuwo"]["format_kwm"] = normalize_target_format(config["kuwo"].get("format_kwm", "auto"))
