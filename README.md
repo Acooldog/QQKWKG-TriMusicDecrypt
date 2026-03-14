@@ -1,6 +1,6 @@
 ﻿<div align="center">
 
-# QKKDecrypt - QQ酷狗酷我音乐解密工具
+# QKKDecrypt - QQ酷狗酷我网易云音乐解密工具
 
 </div>
 
@@ -16,6 +16,8 @@
 
 <div align="center">
 
+> **解密软件最大的特点：官方更新静态密钥后，程序会自动识别，无需维护，主要基于hook技术以及逆向技术**
+
 **一款可以解密QQ音乐、酷我音乐、酷狗音乐的开源免费工具**<br>
 **仅供学习交流使用，尊重正版，从你我做起**<br>
 **如果对你有帮助，可以点一下star吗？万分感谢！！！**<br>
@@ -28,10 +30,24 @@
 <img src="./封面/封面.png" width="50%" height = "50%" align="center">
 
 </div>
+<br><br>
+
+---
+
+
+<div align="center">
+
+# 特别鸣谢
+**感谢原项目提issues以及关注这个项目的人，你们的热情是我的动力<br>你们在bilibili的每条留言我都会看，愿我们永远沉浸在自己的热爱之中！<br><br>最近开学了，修复速度可能会变慢，请见谅！**
+
+![issues1](./img/issues1.png)
+
+</div>
+
 
 ---
 # `QKKDecrypt` 介绍
-- 中文名: `QQ酷狗酷我音乐解密工具`
+- 中文名: `QQ酷狗酷我音乐网易云解密工具`
 - 英文名: `QKKDecrypt`
 - 项目地址: `https://github.com/Acooldog/QQKWKG-TriMusicDecrypt`
   
@@ -39,6 +55,7 @@ main分支为console版本
 main-ui分支为UI版本，UI框架为pyside6
 
 qq音乐解密模型思路是[qqmusic_decrypt](https://github.com/luyikk/qqmusic_decrypt)项目提供的<br>
+网易云音乐解密模型是python的ncmdump库<br>
 其他的解密模型均自主抱着学习以及尊重正版的名义逆向学习<br>
 仅供学习交流使用，禁止商用！禁止倒卖！倒卖者将举报平台并持续追责！！！
 
