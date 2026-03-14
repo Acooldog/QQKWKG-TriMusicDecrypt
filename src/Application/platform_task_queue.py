@@ -262,9 +262,7 @@ class PlatformTaskQueue:
                     return
                 task.status = "waiting"
                 task.message = f"持续解密等待 {int(task.loop_interval_sec)} 秒后重扫"
-                self._emit_log_locked(
-                    f"[loop] {task.title} waiting {task.loop_interval_sec:.0f}s for next scan"
-                )
+                self._emit_log_locked(f"[loop] {task.title} waiting {task.loop_interval_sec:.0f}s for next scan")
                 self._push_state_locked()
 
             waited = 0.0
@@ -289,20 +287,54 @@ class PlatformTaskQueue:
                 task.last_updated = time.time()
                 self._push_state_locked()
 
+    def _cover_message(self, status: str, payload: dict[str, Any]) -> str:
+        source = str(payload.get("source", "") or "").strip()
+        message = str(payload.get("message", "") or "").strip()
+        if status == "embedded":
+            source_label = {"local": "本地图片", "cache": "缓存", "network": "网络兜底"}.get(source, source or "已找到封面")
+            return f"封面已写入（{source_label}）"
+        if status == "already_present":
+            return "原文件已有封面"
+        if status == "disabled":
+            return "已按设置跳过封面补写"
+        if status == "not_found":
+            return "未找到封面，已保留音频输出"
+        if status == "unsupported":
+            return "当前输出格式不支持封面补写"
+        if status == "embed_failed":
+            return f"封面写入失败：{message or '未知错误'}"
+        return message or f"封面处理状态：{status}"
+
     def _handle_event(self, platform_id: str, event_name: str, payload: dict[str, Any]) -> None:
         with self._lock:
             task = self._tasks.get(platform_id)
             if task is None:
                 return
             if event_name == "batch_started":
+                task.success_count = 0
+                task.recovered_count = 0
+                task.skipped_count = 0
+                task.failed_count = 0
                 task.candidate_count = int(payload.get("candidate_count", 0) or 0)
+                task.current_index = 0
                 task.current_total = task.candidate_count
+                task.current_file = ""
+                task.last_timing = {}
+                task.timing_hotspot = {}
                 task.message = "批次已开始"
             elif event_name == "file_started":
                 task.current_file = str(payload.get("input_path", "") or "")
                 task.current_index = int(payload.get("index", 0) or 0)
                 task.current_total = int(payload.get("total", task.current_total) or task.current_total)
                 task.message = pathlib.Path(task.current_file).name if task.current_file else "处理中"
+            elif event_name == "cover_started":
+                task.current_file = str(payload.get("output_path", "") or payload.get("input_path", "") or task.current_file)
+                task.current_index = int(payload.get("index", task.current_index) or task.current_index)
+                task.current_total = int(payload.get("total", task.current_total) or task.current_total)
+                task.message = str(payload.get("message", "") or "正在补封面（本地优先，可能会变慢）")
+            elif event_name == "cover_finished":
+                task.current_file = str(payload.get("output_path", "") or payload.get("input_path", "") or task.current_file)
+                task.message = self._cover_message(str(payload.get("status", "") or ""), payload)
             elif event_name == "file_finished":
                 result = str(payload.get("result", "") or "")
                 detail_payload = dict(payload.get("payload", {}) or {})

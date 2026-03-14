@@ -9,6 +9,7 @@ from PySide6.QtCore import QObject, QPoint, Qt, QTimer, Signal
 from PySide6.QtGui import QDesktopServices, QIcon, QMouseEvent
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -21,6 +22,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QPlainTextEdit,
+    QRadioButton,
     QScrollArea,
     QSizePolicy,
     QVBoxLayout,
@@ -60,7 +62,7 @@ DANGER = "#EF4444"
 
 FORMATS = ["auto"] + [item for item in supported_transcode_formats()
                       if item != "auto"]
-QQ_RULE_FORMATS = ["flac", "ogg", "m4a", "mp3", "wav"]
+QQ_RULE_FORMATS = ["flac", "m4a", "mp3", "wav"]
 
 
 def build_app_stylesheet() -> str:
@@ -97,6 +99,10 @@ def build_app_stylesheet() -> str:
     QCheckBox {{ spacing: 10px; }}
     QCheckBox::indicator {{ width: 18px; height: 18px; border-radius: 5px; border: 1px solid {BORDER}; background: #11151B; }}
     QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
+    QRadioButton {{ spacing: 8px; }}
+    QRadioButton::indicator {{ width: 16px; height: 16px; border-radius: 8px; border: 1px solid {BORDER}; background: #11151B; }}
+    QRadioButton::indicator:hover {{ border-color: #4F6483; }}
+    QRadioButton::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
     QScrollArea {{ border: none; background: transparent; }}
     QPlainTextEdit#LogView {{ background: #0D1015; border-radius: 12px; }}
     QScrollBar:vertical {{ background: transparent; width: 10px; margin: 4px 2px 4px 2px; }}
@@ -284,6 +290,7 @@ class PlatformCard(QFrame):
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self._format_widgets: dict[str, QComboBox] = {}
         self._extra_fields: dict[str, PathField] = {}
+        self._radio_groups: dict[str, tuple[QButtonGroup, dict[str, QRadioButton]]] = {}
 
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 18, 18, 18)
@@ -360,6 +367,37 @@ class PlatformCard(QFrame):
         self._extra_fields[key] = field
         return field
 
+    def add_radio_group(self, key: str, label: str, options: list[tuple[str, str]], note: str) -> None:
+        wrapper = QWidget()
+        wrapper_layout = QVBoxLayout(wrapper)
+        wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        wrapper_layout.setSpacing(6)
+
+        radio_row = QHBoxLayout()
+        radio_row.setContentsMargins(0, 0, 0, 0)
+        radio_row.setSpacing(14)
+        group = QButtonGroup(wrapper)
+        radios: dict[str, QRadioButton] = {}
+        for value, text in options:
+            radio = QRadioButton(text)
+            group.addButton(radio)
+            radios[value] = radio
+            radio_row.addWidget(radio)
+        radio_row.addStretch(1)
+        wrapper_layout.addLayout(radio_row)
+
+        note_label = QLabel(note)
+        note_label.setObjectName("MutedText")
+        note_label.setWordWrap(True)
+        wrapper_layout.addWidget(note_label)
+
+        row = self.form_layout.rowCount()
+        label_widget = QLabel(label)
+        label_widget.setObjectName("FieldLabel")
+        self.form_layout.addWidget(label_widget, row, 0, alignment=Qt.AlignmentFlag.AlignTop)
+        self.form_layout.addWidget(wrapper, row, 1)
+        self._radio_groups[key] = (group, radios)
+
     def set_format_value(self, key: str, value: str) -> None:
         combo = self._format_widgets[key]
         value = value if value in [combo.itemText(
@@ -368,6 +406,20 @@ class PlatformCard(QFrame):
 
     def format_value(self, key: str) -> str:
         return self._format_widgets[key].currentText().strip()
+
+    def set_radio_value(self, key: str, value: str) -> None:
+        _, radios = self._radio_groups[key]
+        selected = radios.get(value)
+        if selected is None:
+            selected = next(iter(radios.values()))
+        selected.setChecked(True)
+
+    def radio_value(self, key: str) -> str:
+        _, radios = self._radio_groups[key]
+        for value, radio in radios.items():
+            if radio.isChecked():
+                return value
+        return next(iter(radios))
 
     def extra_field(self, key: str) -> PathField:
         return self._extra_fields[key]
@@ -529,6 +581,12 @@ class MainWindow(QWidget):
         qq_card.add_format_combo("mflac", "mflac 输出格式", QQ_RULE_FORMATS)
         qq_card.add_format_combo("mgg", "mgg 输出格式", QQ_RULE_FORMATS)
         qq_card.add_format_combo("mmp4", "mmp4 输出格式", QQ_RULE_FORMATS)
+        qq_card.add_radio_group(
+            "embed_cover_art",
+            "封面处理",
+            [("embed", "自动补封面"), ("skip", "不添加封面")],
+            "提示：自动补封面会优先查找本地图片和缓存，必要时才会联网，可能会导致转换明显变慢。",
+        )
         cards_row.addWidget(qq_card, 1)
         self._cards["qq"] = qq_card
 
@@ -614,9 +672,13 @@ class MainWindow(QWidget):
         self._cards["qq"].set_format_value("mflac", str(
             (qq.get("format_rules") or {}).get("mflac", "flac")))
         self._cards["qq"].set_format_value("mgg", str(
-            (qq.get("format_rules") or {}).get("mgg", "ogg")))
+            (qq.get("format_rules") or {}).get("mgg", "m4a")))
         self._cards["qq"].set_format_value("mmp4", str(
             (qq.get("format_rules") or {}).get("mmp4", "m4a")))
+        self._cards["qq"].set_radio_value(
+            "embed_cover_art",
+            "embed" if bool(qq.get("embed_cover_art", True)) else "skip",
+        )
 
         kuwo = self.config["kuwo"]
         self._cards["kuwo"].input_field.setText(str(kuwo.get("input_dir", "")))
@@ -648,6 +710,7 @@ class MainWindow(QWidget):
         qq = {
             "input_dir": self._cards["qq"].input_field.text(),
             "process_match": "qqmusic",
+            "embed_cover_art": self._cards["qq"].radio_value("embed_cover_art") == "embed",
             "format_rules": {
                 "mflac": self._cards["qq"].format_value("mflac"),
                 "mgg": self._cards["qq"].format_value("mgg"),

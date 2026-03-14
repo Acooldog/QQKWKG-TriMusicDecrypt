@@ -4,7 +4,7 @@ import pathlib
 
 
 SUPPORTED_SUFFIXES = {".kgm", ".kgma", ".kgg", ".vpr", ".kgm.flac", ".vpr.flac"}
-OUTPUT_AUDIO_EXTENSIONS = {".flac", ".ogg", ".wav", ".mp3", ".m4a", ".bin"}
+OUTPUT_AUDIO_EXTENSIONS = {".flac", ".wav", ".mp3", ".m4a", ".bin"}
 DEDUPE_OUTPUT_EXTENSIONS = OUTPUT_AUDIO_EXTENSIONS - {".bin"}
 
 

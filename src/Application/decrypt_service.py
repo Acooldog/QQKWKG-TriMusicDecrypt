@@ -4,17 +4,22 @@ import logging
 import pathlib
 import shutil
 import time
-from collections import defaultdict
 from typing import Any
 
 from src.Application.models import BatchRunConfig, BatchSummary, FileResult, PlatformAdapter, TIMING_STAGE_KEYS
+from src.Infrastructure.cover_art_service import CoverArtService
 from src.Infrastructure.output_manifest_repository import OutputManifestRepository
 from src.Infrastructure.runtime_logging import setup_logger, timing_text, write_batch_reports
 from src.Infrastructure.runtime_paths import RuntimePaths
-from src.Infrastructure.transcoder import normalize_target_format, transcode_file
+from src.Infrastructure.transcoder import (
+    normalize_target_format,
+    probe_media_summary,
+    summary_to_log,
+    transcode_file,
+)
 
 
-AUDIO_OUTPUT_EXTS = {".flac", ".ogg", ".wav", ".mp3", ".m4a"}
+AUDIO_OUTPUT_EXTS = {".flac", ".wav", ".mp3", ".m4a"}
 
 
 def _new_timing() -> dict[str, float]:
@@ -42,6 +47,101 @@ def _artifact_timing(detail: dict[str, Any]) -> dict[str, float]:
         "publish_sec": 0.0,
         "total_sec": total,
     }
+
+
+def _log_media_summary(logger: logging.Logger, label: str, path: pathlib.Path) -> dict[str, Any]:
+    summary = probe_media_summary(path)
+    logger.info("%s: %s | %s", label, path.name, summary_to_log(summary))
+    return summary
+
+
+def _validate_summary(logger: logging.Logger, label: str, path: pathlib.Path, summary: dict[str, Any]) -> str | None:
+    container = str(summary.get("container") or "bin")
+    if container == "bin":
+        logger.warning("%s produced an unrecognized audio container: %s", label, path)
+        return "unrecognized_audio_container"
+    return None
+
+
+def _cover_art_enabled(settings: dict[str, Any]) -> bool:
+    value = settings.get("embed_cover_art", True)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return bool(value)
+
+
+def _maybe_attach_cover(
+    logger: logging.Logger,
+    config: BatchRunConfig,
+    cover_service: CoverArtService,
+    source_path: pathlib.Path,
+    output_path: pathlib.Path,
+    *,
+    index: int,
+    total_count: int,
+) -> None:
+    if output_path.suffix.lower() not in {".m4a", ".mp3", ".flac"}:
+        return
+    if not _cover_art_enabled(config.settings):
+        logger.info("cover_skipped: %s reason=disabled_by_user", output_path.name)
+        _emit_event(
+            config,
+            "cover_finished",
+            {
+                "platform_id": config.platform_id,
+                "index": index,
+                "total": total_count,
+                "input_path": str(source_path),
+                "output_path": str(output_path),
+                "status": "disabled",
+                "message": "已按设置跳过封面补写",
+            },
+        )
+        return
+    logger.info("covering: %s source=%s mode=local_first cache_then_network may_be_slow=true", output_path.name, source_path.name)
+    _emit_event(
+        config,
+        "cover_started",
+        {
+            "platform_id": config.platform_id,
+            "index": index,
+            "total": total_count,
+            "input_path": str(source_path),
+            "output_path": str(output_path),
+            "message": "正在补封面（本地优先，可能会变慢）",
+        },
+    )
+    summary_before = probe_media_summary(output_path)
+    result = cover_service.supplement_cover(str(output_path), str(source_path), summary_before)
+    if result.status == "embedded":
+        logger.info(
+            "Cover attached: %s source=%s image=%s | %s",
+            output_path.name,
+            result.source or "",
+            result.image_path or "",
+            summary_to_log(probe_media_summary(output_path)),
+        )
+    elif result.status not in {"already_present", "unsupported"}:
+        logger.info(
+            "Cover not attached: %s status=%s message=%s",
+            output_path.name,
+            result.status,
+            result.message,
+        )
+    _emit_event(
+        config,
+        "cover_finished",
+        {
+            "platform_id": config.platform_id,
+            "index": index,
+            "total": total_count,
+            "input_path": str(source_path),
+            "output_path": str(output_path),
+            "status": result.status,
+            "source": result.source or "",
+            "message": result.message,
+        },
+    )
 
 
 def _throughput_mib(detail: dict[str, Any], decrypt_timing: dict[str, float]) -> float:
@@ -112,9 +212,19 @@ def _resolve_publish_target(
 
 def _publish_file(source_path: pathlib.Path, target_path: pathlib.Path) -> pathlib.Path:
     target_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_target = target_path.with_name(f".{target_path.stem}.publish.{time.time_ns()}{target_path.suffix}")
     if target_path.exists():
         target_path.unlink()
-    source_path.replace(target_path)
+    try:
+        source_path.replace(target_path)
+    except OSError:
+        if temp_target.exists():
+            temp_target.unlink()
+        shutil.copy2(str(source_path), str(temp_target))
+        temp_target.replace(target_path)
+        source_path.unlink(missing_ok=True)
+    finally:
+        temp_target.unlink(missing_ok=True)
     return target_path
 
 
@@ -133,6 +243,15 @@ def _maybe_transcode(logger: logging.Logger, input_path: pathlib.Path, target_fo
     return target_path, target_format, meta
 
 
+def _normalize_final_target(desired_target: str, detected_container: str) -> str:
+    normalized = normalize_target_format(desired_target)
+    if normalized == "ogg":
+        return "m4a"
+    if normalized == "auto" and str(detected_container).lower() == "ogg":
+        return "m4a"
+    return normalized
+
+
 def _emit_event(config: BatchRunConfig, event_name: str, payload: dict[str, Any]) -> None:
     if config.event_sink is None:
         return
@@ -143,19 +262,11 @@ def _emit_event(config: BatchRunConfig, event_name: str, payload: dict[str, Any]
         pass
 
 
-def _stop_requested(config: BatchRunConfig) -> bool:
-    if config.stop_requested is None:
-        return False
-    try:
-        return bool(config.stop_requested())
-    except Exception:
-        return False
-
-
 def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
     paths = RuntimePaths.discover()
     paths.ensure_runtime_dirs()
     logger, log_path, log_dir = setup_logger(paths)
+    cover_service = CoverArtService()
     manifest_repo = OutputManifestRepository(paths.output_manifest)
     batch_started = time.perf_counter()
     work_dir = log_dir / "work" / f"{config.platform_id}_{int(batch_started)}"
@@ -187,13 +298,8 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
     success_count = 0
     skipped_count = 0
     failed_count = 0
-    stopped = False
 
     for index, file_path in enumerate(files, start=1):
-        if _stop_requested(config):
-            stopped = True
-            logger.info("batch_stop_requested: platform=%s before_file=%d", config.platform_id, index)
-            break
         file_started = time.perf_counter()
         file_timing = _new_timing()
         scan_started = time.perf_counter()
@@ -260,10 +366,37 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
 
             working_path = pathlib.Path(str(detail["output_path"]))
             detected_container = str(detail.get("detected_container") or detail.get("final_extension") or "bin").lower()
-            if detected_container == "bin":
-                raise RuntimeError(str(detail.get("reason") or "unrecognized_audio_container"))
+            decrypt_summary = _log_media_summary(logger, "Decrypt media summary", working_path)
+            summary_error = _validate_summary(logger, "Decrypt", working_path, decrypt_summary)
+            if summary_error:
+                raise RuntimeError(str(detail.get("reason") or summary_error))
 
+            desired_target = _normalize_final_target(desired_target, detected_container)
             working_path, final_extension, transcode_meta = _maybe_transcode(logger, file_path, desired_target, working_path, detected_container, file_timing)
+            if final_extension == "ogg":
+                logger.info("final_container_ogg_detected: %s -> forcing m4a publish", file_path.name)
+                working_path, final_extension, transcode_meta = _maybe_transcode(
+                    logger,
+                    file_path,
+                    "m4a",
+                    working_path,
+                    final_extension,
+                    file_timing,
+                )
+            if config.platform_id == "qq":
+                _maybe_attach_cover(
+                    logger,
+                    config,
+                    cover_service,
+                    file_path,
+                    working_path,
+                    index=index,
+                    total_count=len(files),
+                )
+            final_summary = _log_media_summary(logger, "Final media summary", working_path)
+            summary_error = _validate_summary(logger, "Final publish", working_path, final_summary)
+            if summary_error:
+                raise RuntimeError(summary_error)
             publish_started = time.perf_counter()
             if publish_hint is None or publish_hint[0].suffix.lower() != f".{final_extension}":
                 publish_hint = _resolve_publish_target(
@@ -355,10 +488,6 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
                 },
             )
             failed_count += 1
-        if _stop_requested(config):
-            stopped = True
-            logger.info("batch_stop_requested: platform=%s after_file=%d", config.platform_id, index)
-            break
 
     timed_file_count = len(files) if files else 1
     timing_batch_avg = {key: round(float(timing_batch_total.get(key, 0.0)) / float(timed_file_count), 6) for key in TIMING_STAGE_KEYS}
@@ -370,7 +499,7 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
         "ratio_of_total": round(float(hotspot_candidates.get(hotspot_stage, 0.0)) / float(timing_batch_total.get("total_sec", 0.0)), 6) if hotspot_stage and float(timing_batch_total.get("total_sec", 0.0)) > 0.0 else 0.0,
         "batch_wall_sec": round(time.perf_counter() - batch_started, 6),
     }
-    result_code = 3 if stopped else (0 if failed_count == 0 else 2)
+    result_code = 0 if failed_count == 0 else 2
     summary = BatchSummary(
         result_code=result_code,
         platform_id=config.platform_id,

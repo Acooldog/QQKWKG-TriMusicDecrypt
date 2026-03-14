@@ -158,6 +158,8 @@ O:\A_python\A_QKKd\.venv\Scripts\python.exe O:\A_python\A_QKKd\main.py
 - `QQ` 保留源格式级规则
 - `酷我` 使用 `format_kwm`
 - `酷狗` 使用 `target_format_kgma / target_format_kgg`
+- 三个平台的最终输出统一限制为 `flac / m4a / mp3 / wav`
+- `ogg` 只允许作为历史输入来源，不再作为新的最终输出格式
 
 ## Packaging
 

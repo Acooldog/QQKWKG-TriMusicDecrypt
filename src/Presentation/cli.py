@@ -186,16 +186,16 @@ def run_interactive() -> int:
 
     if platform_id == "qq":
         rules = dict(settings.get("format_rules", {}))
-        rules["mflac"] = prompt_choice("mflac 输出格式 flac/ogg/m4a/mp3/wav", str(rules.get("mflac", "flac")), supported_transcode_formats())
-        rules["mgg"] = prompt_choice("mgg 输出格式 flac/ogg/m4a/mp3/wav", str(rules.get("mgg", "ogg")), supported_transcode_formats())
-        rules["mmp4"] = prompt_choice("mmp4 输出格式 flac/ogg/m4a/mp3/wav", str(rules.get("mmp4", "m4a")), supported_transcode_formats())
+        rules["mflac"] = prompt_choice("mflac 输出格式 flac/m4a/mp3/wav", str(rules.get("mflac", "flac")), supported_transcode_formats())
+        rules["mgg"] = prompt_choice("mgg 输出格式 flac/m4a/mp3/wav", str(rules.get("mgg", "m4a")), supported_transcode_formats())
+        rules["mmp4"] = prompt_choice("mmp4 输出格式 flac/m4a/mp3/wav", str(rules.get("mmp4", "m4a")), supported_transcode_formats())
         settings["format_rules"] = rules
     elif platform_id == "kuwo":
-        settings["format_kwm"] = prompt_choice("kwm 输出格式 auto/flac/ogg/m4a/mp3/wav", str(settings.get("format_kwm", "auto")), supported_transcode_formats())
+        settings["format_kwm"] = prompt_choice("kwm 输出格式 auto/flac/m4a/mp3/wav", str(settings.get("format_kwm", "auto")), supported_transcode_formats())
         settings["signature_file"] = str(default_kuwo_signature_path(paths))
     else:
-        settings["target_format_kgma"] = prompt_choice("kgma/kgm/vpr 输出格式 auto/flac/ogg/m4a/mp3/wav", str(settings.get("target_format_kgma", "auto")), supported_transcode_formats())
-        settings["target_format_kgg"] = prompt_choice("kgg 输出格式 auto/flac/ogg/m4a/mp3/wav", str(settings.get("target_format_kgg", "auto")), supported_transcode_formats())
+        settings["target_format_kgma"] = prompt_choice("kgma/kgm/vpr 输出格式 auto/flac/m4a/mp3/wav", str(settings.get("target_format_kgma", "auto")), supported_transcode_formats())
+        settings["target_format_kgg"] = prompt_choice("kgg 输出格式 auto/flac/m4a/mp3/wav", str(settings.get("target_format_kgg", "auto")), supported_transcode_formats())
         auto_key = auto_find_kugou_key(paths)
         if auto_key is not None:
             settings["key_file"] = str(auto_key)

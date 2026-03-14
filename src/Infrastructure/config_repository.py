@@ -14,7 +14,7 @@ PROJECT_NAME_ZH = "QQ酷狗酷我音乐解密工具"
 PROJECT_ADDRESS = "https://github.com/Acooldog/QQKWKG-TriMusicDecrypt"
 PROJECT_QQ = "2622138410"
 QQMUSIC_ATTRIBUTION = "QQ 音乐解密模型思路参考项目：qqmusic_decrypt（https://github.com/luyikk/qqmusic_decrypt）"
-LEGAL_NOTICE = "其他模型为自主逆向学习实现，仅供学习交流使用；禁止商用，禁止倒卖，倒卖者将举报平台并持续追责。"
+LEGAL_NOTICE = "其他模型为自主逆向学习实现，仅供学习交流使用；禁止商用，禁止倒卖，倒卖者将举报平台并持续追责。\n文件说明: m4a有封面但是没有专辑信息/flac以上都有/mp3以上都有/wav无封面无专辑信息"
 FLET_NOTE = "main-ui 分支采用 PySide6。PySide6 基于 Qt for Python，桌面界面由本地 Qt 窗口和 Python 业务逻辑直接驱动。"
 DEFAULT_KUGOU_INPUT = pathlib.Path(r"O:\KuGou\KugouMusic")
 DEFAULT_KUWO_INPUT = pathlib.Path(r"C:\Users\01080\Documents\Frontier Developments\Planet Coaster\UserMusic\MusicPack")
@@ -108,7 +108,8 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
         "qq": {
             "input_dir": str(DEFAULT_QQ_INPUT),
             "process_match": "qqmusic",
-            "format_rules": {"mflac": "flac", "mgg": "ogg", "mmp4": "m4a"},
+            "embed_cover_art": True,
+            "format_rules": {"mflac": "flac", "mgg": "m4a", "mmp4": "m4a"},
         },
         "kuwo": {
             "input_dir": str(DEFAULT_KUWO_INPUT),
@@ -129,6 +130,23 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
         value = payload.get(section)
         if isinstance(value, dict):
             config[section].update(value)
+    format_rules = config["qq"].get("format_rules")
+    if not isinstance(format_rules, dict):
+        format_rules = {"mflac": "flac", "mgg": "m4a", "mmp4": "m4a"}
+    for key in ("mflac", "mgg", "mmp4"):
+        value = str(format_rules.get(key) or "").strip().lower()
+        if value == "ogg":
+            value = "m4a"
+        if value not in SUPPORTED_TARGET_FORMATS:
+            value = "m4a" if key != "mflac" else "flac"
+        format_rules[key] = value
+    config["qq"]["format_rules"] = format_rules
+    embed_cover_art = config["qq"].get("embed_cover_art", True)
+    if isinstance(embed_cover_art, str):
+        embed_cover_art = embed_cover_art.strip().lower() in {"1", "true", "yes", "y", "on"}
+    else:
+        embed_cover_art = bool(embed_cover_art)
+    config["qq"]["embed_cover_art"] = embed_cover_art
     config["shared"]["cli_collision_policy"] = str(config["shared"].get("cli_collision_policy", "suffix") or "suffix").lower()
     config["shared"]["recursive"] = bool(config["shared"].get("recursive", True))
     config["kuwo"]["format_kwm"] = normalize_target_format(config["kuwo"].get("format_kwm", "auto"))

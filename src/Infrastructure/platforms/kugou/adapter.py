@@ -36,10 +36,13 @@ class KugouPlatformAdapter:
             value = str(settings.get("target_format_kgg", "auto") or "auto").strip().lower().lstrip(".")
         else:
             value = str(settings.get("target_format_kgma", "auto") or "auto").strip().lower().lstrip(".")
+        if value == "ogg":
+            value = "m4a"
         return None if value == "auto" else value
 
     def desired_target_format(self, input_path: pathlib.Path, settings: dict) -> str:
-        return self.predicted_extension(input_path, settings) or "auto"
+        value = self.predicted_extension(input_path, settings) or "auto"
+        return "m4a" if value == "ogg" else value
 
     def decrypt_one(self, input_path: pathlib.Path, work_dir: pathlib.Path, settings: dict, *, log_dir: pathlib.Path) -> dict:
         paths = RuntimePaths.discover()
