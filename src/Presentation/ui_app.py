@@ -569,7 +569,8 @@ class MainWindow(QWidget):
         self.album_disable_radio = QRadioButton("不补充专辑信息")
         self.album_mode_group.addButton(self.album_enable_radio)
         self.album_mode_group.addButton(self.album_disable_radio)
-        self.album_note = QLabel("提示：专辑信息补全目前仅对 m4a 和 wav 生效，因为其他格式自带信息，优先使用本地已有信息，缺失时才会网络兜底。会变慢大约5倍")
+        self.album_note = QLabel("提示：专辑信息补全目前仅对 m4a 生效，因为其他格式自带信息，优先使用本地已有信息，缺失时才会网络兜底。会变慢大约5倍\n" \
+        "由于wav特殊的文件格式，所以无法写入封面以及专辑信息")
         self.album_note.setObjectName("MutedText")
         self.album_note.setWordWrap(True)
 
