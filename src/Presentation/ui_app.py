@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QScrollArea,
     QSizePolicy,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -115,6 +116,10 @@ def build_app_stylesheet() -> str:
     QScrollBar::handle:horizontal:hover {{ background: #4F6483; }}
     QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0px; }}
     QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{ background: transparent; }}
+    QTabWidget::pane {{ border: 1px solid {BORDER}; border-radius: 14px; top: -1px; background: {CARD_BG}; }}
+    QTabBar::tab {{ background: #1A1F28; color: {TEXT_MUTED}; border: 1px solid {BORDER}; padding: 10px 16px; border-top-left-radius: 10px; border-top-right-radius: 10px; min-width: 96px; }}
+    QTabBar::tab:selected {{ background: {CARD_BG}; color: {TEXT}; border-color: #3E5678; }}
+    QTabBar::tab:hover:!selected {{ background: #222935; color: {TEXT}; }}
     """
 
 
@@ -134,6 +139,17 @@ class TitleBar(QFrame):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(18, 12, 18, 10)
         layout.setSpacing(10)
+
+        app_icon = parent.windowIcon()
+        if app_icon.isNull():
+            instance = QApplication.instance()
+            if instance is not None:
+                app_icon = instance.windowIcon()
+        if not app_icon.isNull():
+            icon_label = QLabel()
+            icon_label.setFixedSize(24, 24)
+            icon_label.setPixmap(app_icon.pixmap(22, 22))
+            layout.addWidget(icon_label)
 
         title_label = QLabel(title)
         title_label.setObjectName("TitleLabel")
@@ -530,7 +546,7 @@ class MainWindow(QWidget):
         title = QLabel("统一解密工作台")
         title.setObjectName("HeroTitle")
         desc = QLabel(
-            "支持 QQ 音乐、酷我音乐、酷狗音乐。QQ 和酷我需要软件保持运行，酷狗为纯文件级离线解密，前提是必须安装酷狗音乐。")
+            "支持 QQ 音乐、酷我音乐、酷狗音乐和网易云音乐。QQ 和酷我需要软件保持运行；酷狗与网易云为文件级离线解密。")
         desc.setWordWrap(True)
         desc.setObjectName("HeroSubtitle")
         link = QLabel(f'<a href="{PROJECT_ADDRESS}">{PROJECT_ADDRESS}</a>')
@@ -616,15 +632,37 @@ class MainWindow(QWidget):
         shared_layout.addLayout(action_row)
         body_layout.addWidget(shared_card)
 
-        cards_row = QHBoxLayout()
-        cards_row.setSpacing(16)
-        body_layout.addLayout(cards_row)
+        tabs_card = QFrame()
+        tabs_card.setObjectName("ConfigCard")
+        tabs_layout = QVBoxLayout(tabs_card)
+        tabs_layout.setContentsMargins(18, 16, 18, 16)
+        tabs_layout.setSpacing(12)
+        tabs_title = QLabel("平台解密")
+        tabs_title.setObjectName("SectionTitle")
+        tabs_hint = QLabel("每个平台单独占一个标签页，方便集中查看状态、配置和操作。")
+        tabs_hint.setObjectName("MutedText")
+        tabs_hint.setWordWrap(True)
+        self.platform_tabs = QTabWidget()
+        self.platform_tabs.setDocumentMode(True)
+        tabs_layout.addWidget(tabs_title)
+        tabs_layout.addWidget(tabs_hint)
+        tabs_layout.addWidget(self.platform_tabs, 1)
+        body_layout.addWidget(tabs_card)
+
+        def add_platform_tab(card: PlatformCard, title_text: str) -> None:
+            page = QWidget()
+            page_layout = QVBoxLayout(page)
+            page_layout.setContentsMargins(10, 10, 10, 10)
+            page_layout.setSpacing(0)
+            page_layout.addWidget(card)
+            page_layout.addStretch(1)
+            self.platform_tabs.addTab(page, title_text)
 
         qq_card = PlatformCard("qq", "QQ音乐", "运行期解密，开始任务前会检查 QQ 音乐进程。")
         qq_card.add_format_combo("mflac", "mflac 输出格式", QQ_RULE_FORMATS)
         qq_card.add_format_combo("mgg", "mgg 输出格式", QQ_RULE_FORMATS)
         qq_card.add_format_combo("mmp4", "mmp4 输出格式", QQ_RULE_FORMATS)
-        cards_row.addWidget(qq_card, 1)
+        add_platform_tab(qq_card, "QQ音乐")
         self._cards["qq"] = qq_card
 
         kuwo_card = PlatformCard(
@@ -632,7 +670,7 @@ class MainWindow(QWidget):
         kuwo_card.add_format_combo("format_kwm", "kwm 输出格式", FORMATS)
         kuwo_card.add_extra_field("exe_path", "酷我程序路径（可选）", directory=False)
         kuwo_card.add_extra_field("signature_file", "签名文件路径", directory=False)
-        cards_row.addWidget(kuwo_card, 1)
+        add_platform_tab(kuwo_card, "酷我音乐")
         self._cards["kuwo"] = kuwo_card
 
         kugou_card = PlatformCard("kugou", "酷狗音乐", "文件级离线解密，不要求 KuGou 运行。")
@@ -643,8 +681,13 @@ class MainWindow(QWidget):
             "key_file", "kugou_key.xz 路径", directory=False)
         kugou_card.add_extra_field(
             "kgg_db_path", "KGMusicV3.db 路径", directory=False)
-        cards_row.addWidget(kugou_card, 1)
+        add_platform_tab(kugou_card, "酷狗音乐")
         self._cards["kugou"] = kugou_card
+
+        netease_card = PlatformCard("netease", "网易云音乐", "文件级离线解密，直接处理 .ncm 文件，不要求网易云音乐运行。")
+        netease_card.add_format_combo("target_format_ncm", "ncm 输出格式", FORMATS)
+        add_platform_tab(netease_card, "网易云音乐")
+        self._cards["netease"] = netease_card
 
         right_card = QFrame()
         right_card.setObjectName("ConfigCard")
@@ -695,7 +738,7 @@ class MainWindow(QWidget):
         self.bridge.submission_result.connect(self._handle_submission_result)
 
     def _platform_title(self, platform_id: str) -> str:
-        return {"qq": "QQ音乐", "kuwo": "酷我音乐", "kugou": "酷狗音乐"}[platform_id]
+        return {"qq": "QQ音乐", "kuwo": "酷我音乐", "kugou": "酷狗音乐", "netease": "网易云音乐"}[platform_id]
 
     def _load_config_into_widgets(self) -> None:
         self.root_config, self.config = load_config(self.paths)
@@ -740,6 +783,11 @@ class MainWindow(QWidget):
             str(kugou.get("key_file", "")))
         self._cards["kugou"].extra_field("kgg_db_path").setText(
             str(kugou.get("kgg_db_path", "")))
+        netease = self.config["netease"]
+        self._cards["netease"].input_field.setText(
+            str(netease.get("input_dir", "")))
+        self._cards["netease"].set_format_value(
+            "target_format_ncm", str(netease.get("target_format_ncm", "auto")))
 
     def _save_config_from_widgets(self, *, announce: bool = True) -> None:
         shared = {
@@ -772,8 +820,12 @@ class MainWindow(QWidget):
             "target_format_kgma": self._cards["kugou"].format_value("target_format_kgma"),
             "target_format_kgg": self._cards["kugou"].format_value("target_format_kgg"),
         }
+        netease = {
+            "input_dir": self._cards["netease"].input_field.text(),
+            "target_format_ncm": self._cards["netease"].format_value("target_format_ncm"),
+        }
         self.config = {"shared": shared, "qq": qq,
-                       "kuwo": kuwo, "kugou": kugou}
+                       "kuwo": kuwo, "kugou": kugou, "netease": netease}
         save_config(self.paths, self.root_config, self.config)
         if announce:
             self._append_log("配置已保存。")

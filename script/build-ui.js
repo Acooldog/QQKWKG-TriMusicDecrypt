@@ -56,6 +56,7 @@ ensureFile(appIcon, "application icon");
 
 ensureModule("PySide6", "PySide6");
 ensureModule("shiboken6", "PySide6");
+ensureModule("ncmdump", "ncmdump-py");
 
 ensureEmptyDir(distRoot);
 ensureEmptyDir(buildRoot);
@@ -141,6 +142,8 @@ const pyinstallerArgs = [
   "src",
   "--collect-all",
   "frida",
+  "--collect-all",
+  "ncmdump",
   "--hidden-import",
   "shiboken6",
   "--hidden-import",
