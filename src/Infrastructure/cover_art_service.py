@@ -114,32 +114,32 @@ class CoverArtService:
                 message=f"album metadata supplementation is not supported for {audio_ext or 'unknown'}",
             )
 
-        current = self._extract_music_identity(audio, source, media_summary or {})
-        title, artist, album = current
-        if title and artist and album:
+        fallback_title, fallback_artist, _ = self._extract_music_identity(audio, source, media_summary or {})
+        embedded_title, embedded_artist, embedded_album = self._extract_embedded_audio_tags(audio, media_summary or {})
+        if embedded_title and embedded_artist and embedded_album:
             return AlbumMetadataResult(status="already_present", message="album metadata already present", source="local")
 
-        search_result = self._search_cover_online(title, artist)
+        search_result = self._search_cover_online(fallback_title or embedded_title, fallback_artist or embedded_artist)
         if not search_result:
             return AlbumMetadataResult(status="not_found", message="album metadata was not found locally or online")
 
-        target_title = title or str(search_result.get("title") or "").strip()
-        target_artist = artist or str(search_result.get("artist") or "").strip()
-        target_album = album or str(search_result.get("album") or "").strip()
+        target_title = embedded_title or fallback_title or str(search_result.get("title") or "").strip()
+        target_artist = embedded_artist or fallback_artist or str(search_result.get("artist") or "").strip()
+        target_album = embedded_album or str(search_result.get("album") or "").strip()
         updated_fields = self._embed_album_metadata(
             audio_path=audio,
             title=target_title,
             artist=target_artist,
             album=target_album,
-            current_title=title,
-            current_artist=artist,
-            current_album=album,
+            current_title=embedded_title,
+            current_artist=embedded_artist,
+            current_album=embedded_album,
         )
         if updated_fields:
             return AlbumMetadataResult(
                 status="embedded",
                 message="album metadata supplemented",
-                source="network" if not album else "local",
+                source="network" if not embedded_album else "local",
                 updated_fields=tuple(updated_fields),
             )
         return AlbumMetadataResult(status="already_present", message="album metadata already present", source="local")
@@ -166,6 +166,48 @@ class CoverArtService:
             artist_part, title_part = stem.split(" - ", 1)
             return title_part.strip(), artist_part.strip(), ""
         return stem.strip(), "", ""
+
+    def _extract_embedded_audio_tags(
+        self,
+        audio_path: pathlib.Path,
+        media_summary: dict[str, Any],
+    ) -> tuple[str, str, str]:
+        tags = media_summary.get("tags") if isinstance(media_summary.get("tags"), dict) else {}
+        if not tags and isinstance(media_summary.get("metadata"), dict):
+            tags = media_summary.get("metadata") or {}
+
+        title = self._first_non_empty(tags.get("title"), tags.get("TITLE"))
+        artist = self._first_non_empty(tags.get("artist"), tags.get("ARTIST"), tags.get("album_artist"))
+        album = self._first_non_empty(tags.get("album"), tags.get("ALBUM"))
+        if title or artist or album:
+            return str(title or "").strip(), str(artist or "").strip(), str(album or "").strip()
+
+        try:
+            suffix = audio_path.suffix.lower()
+            if suffix == ".m4a":
+                audio = MP4(str(audio_path))
+                tags = audio.tags or {}
+                return (
+                    self._first_non_empty(*(tags.get("\xa9nam") or [])),
+                    self._first_non_empty(*(tags.get("\xa9ART") or []), *(tags.get("aART") or [])),
+                    self._first_non_empty(*(tags.get("\xa9alb") or [])),
+                )
+            if suffix == ".wav":
+                audio = WAVE(str(audio_path))
+                tags = audio.tags
+                if tags is None:
+                    return "", "", ""
+                title_frame = tags.getall("TIT2")
+                artist_frame = tags.getall("TPE1")
+                album_frame = tags.getall("TALB")
+                return (
+                    self._first_non_empty(*[str(text) for frame in title_frame for text in getattr(frame, "text", [])]),
+                    self._first_non_empty(*[str(text) for frame in artist_frame for text in getattr(frame, "text", [])]),
+                    self._first_non_empty(*[str(text) for frame in album_frame for text in getattr(frame, "text", [])]),
+                )
+        except Exception:
+            logger.exception("Failed to read embedded album tags: %s", audio_path)
+        return "", "", ""
 
     @staticmethod
     def _first_non_empty(*values: object) -> str:
@@ -409,6 +451,7 @@ class CoverArtService:
     ) -> list[str]:
         suffix = audio_path.suffix.lower()
         updated_fields: list[str] = []
+        requires_save = False
         if suffix == ".m4a":
             audio = MP4(str(audio_path))
             if audio.tags is None:
@@ -416,13 +459,21 @@ class CoverArtService:
             if title and not current_title:
                 audio.tags["\xa9nam"] = [title]
                 updated_fields.append("title")
+                requires_save = True
             if artist and not current_artist:
                 audio.tags["\xa9ART"] = [artist]
+                audio.tags["aART"] = [artist]
                 updated_fields.append("artist")
+                requires_save = True
+            elif artist and not (audio.tags.get("aART") or []):
+                audio.tags["aART"] = [artist]
+                updated_fields.append("artist")
+                requires_save = True
             if album and not current_album:
                 audio.tags["\xa9alb"] = [album]
                 updated_fields.append("album")
-            if updated_fields:
+                requires_save = True
+            if requires_save:
                 audio.save()
             return updated_fields
         if suffix == ".wav":
@@ -433,15 +484,18 @@ class CoverArtService:
                 audio.tags.delall("TIT2")
                 audio.tags.add(TIT2(encoding=3, text=[title]))
                 updated_fields.append("title")
+                requires_save = True
             if artist and not current_artist:
                 audio.tags.delall("TPE1")
                 audio.tags.add(TPE1(encoding=3, text=[artist]))
                 updated_fields.append("artist")
+                requires_save = True
             if album and not current_album:
                 audio.tags.delall("TALB")
                 audio.tags.add(TALB(encoding=3, text=[album]))
                 updated_fields.append("album")
-            if updated_fields:
+                requires_save = True
+            if requires_save:
                 audio.save()
             return updated_fields
         return updated_fields

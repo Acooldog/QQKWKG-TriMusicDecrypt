@@ -348,6 +348,25 @@ def _emit_event(config: BatchRunConfig, event_name: str, payload: dict[str, Any]
         pass
 
 
+def _is_stop_requested(config: BatchRunConfig) -> bool:
+    if config.stop_requested is None:
+        return False
+    try:
+        return bool(config.stop_requested())
+    except Exception:
+        return False
+
+
+def _cleanup_working_path(path: pathlib.Path | None) -> None:
+    if path is None:
+        return
+    try:
+        if path.exists():
+            path.unlink()
+    except Exception:
+        pass
+
+
 def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
     paths = RuntimePaths.discover()
     paths.ensure_runtime_dirs()
@@ -384,8 +403,13 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
     success_count = 0
     skipped_count = 0
     failed_count = 0
+    stopped_early = False
 
     for index, file_path in enumerate(files, start=1):
+        if _is_stop_requested(config):
+            stopped_early = True
+            logger.info("stop_requested_before_file: index=%d total=%d", index, len(files))
+            break
         file_started = time.perf_counter()
         file_timing = _new_timing()
         scan_started = time.perf_counter()
@@ -451,6 +475,11 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
             _log_decrypt_detail(logger, config.platform_id, index, len(files), file_path.name, detail, decrypt_detail_timing)
 
             working_path = pathlib.Path(str(detail["output_path"]))
+            if _is_stop_requested(config):
+                stopped_early = True
+                logger.info("stop_requested_after_decrypt: %s", file_path.name)
+                _cleanup_working_path(working_path)
+                break
             detected_container = str(detail.get("detected_container") or detail.get("final_extension") or "bin").lower()
             decrypt_summary = _log_media_summary(logger, "Decrypt media summary", working_path)
             summary_error = _validate_summary(logger, "Decrypt", working_path, decrypt_summary)
@@ -469,6 +498,11 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
                     final_extension,
                     file_timing,
                 )
+            if _is_stop_requested(config):
+                stopped_early = True
+                logger.info("stop_requested_after_transcode: %s", file_path.name)
+                _cleanup_working_path(working_path)
+                break
             _maybe_attach_cover(
                 logger,
                 config,
@@ -478,6 +512,11 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
                 index=index,
                 total_count=len(files),
             )
+            if _is_stop_requested(config):
+                stopped_early = True
+                logger.info("stop_requested_after_cover: %s", file_path.name)
+                _cleanup_working_path(working_path)
+                break
             _maybe_supplement_album_metadata(
                 logger,
                 config,
@@ -487,6 +526,11 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
                 index=index,
                 total_count=len(files),
             )
+            if _is_stop_requested(config):
+                stopped_early = True
+                logger.info("stop_requested_after_metadata: %s", file_path.name)
+                _cleanup_working_path(working_path)
+                break
             final_summary = _log_media_summary(logger, "Final media summary", working_path)
             summary_error = _validate_summary(logger, "Final publish", working_path, final_summary)
             if summary_error:
@@ -593,7 +637,7 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
         "ratio_of_total": round(float(hotspot_candidates.get(hotspot_stage, 0.0)) / float(timing_batch_total.get("total_sec", 0.0)), 6) if hotspot_stage and float(timing_batch_total.get("total_sec", 0.0)) > 0.0 else 0.0,
         "batch_wall_sec": round(time.perf_counter() - batch_started, 6),
     }
-    result_code = 0 if failed_count == 0 else 2
+    result_code = 3 if stopped_early else (0 if failed_count == 0 else 2)
     summary = BatchSummary(
         result_code=result_code,
         platform_id=config.platform_id,
