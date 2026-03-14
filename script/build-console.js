@@ -1,5 +1,6 @@
 const path = require("path");
 const {
+  capture,
   ensureDir,
   ensureEmptyDir,
   ensureFile,
@@ -28,6 +29,31 @@ ensureFile(path.join(assetsDir, "ffmpeg-win-x86_64-v7.1.exe"), "bundled ffmpeg")
 ensureFile(path.join(kuwoRuntimeDir, "kwm_export_agent.js"), "kwm_export_agent.js");
 ensureFile(path.join(kuwoRuntimeDir, "out", "recovered_signature.json"), "kuwo recovered signature");
 ensureFile(appIcon, "application icon");
+
+function hasModule(moduleName) {
+  const script = [
+    "import importlib.util, sys",
+    `sys.exit(0 if importlib.util.find_spec(${JSON.stringify(moduleName)}) else 1)`,
+  ].join("; ");
+  try {
+    capture(pythonExe, ["-c", script], { cwd: rootDir });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function ensureModule(moduleName, packageName = moduleName) {
+  if (hasModule(moduleName)) {
+    return;
+  }
+  run(pythonExe, ["-m", "pip", "install", packageName], { cwd: rootDir });
+  if (!hasModule(moduleName)) {
+    throw new Error(`Python module '${moduleName}' is still unavailable after installing '${packageName}'.`);
+  }
+}
+
+ensureModule("ncmdump", "ncmdump-py");
 
 ensureEmptyDir(distRoot);
 ensureEmptyDir(buildRoot);
@@ -59,6 +85,8 @@ const pyinstallerArgs = [
   "src",
   "--collect-all",
   "frida",
+  "--collect-all",
+  "ncmdump",
   "--add-data",
   `${assetsDir};assets`,
   "--add-data",

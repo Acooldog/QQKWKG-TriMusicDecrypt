@@ -27,7 +27,7 @@ from src.Infrastructure.platforms.registry import build_platform_adapter
 from src.Infrastructure.runtime_paths import RuntimePaths
 
 
-PLATFORM_LABELS = {"qq": "QQ音乐", "kuwo": "酷我音乐", "kugou": "酷狗音乐"}
+PLATFORM_LABELS = {"qq": "QQ音乐", "kuwo": "酷我音乐", "kugou": "酷狗音乐", "netease": "网易云音乐"}
 
 
 def pause_exit(code: int = 0, message: str | None = None) -> int:
@@ -68,7 +68,18 @@ def choose_platform() -> str:
     print("1. QQ音乐")
     print("2. 酷我音乐")
     print("3. 酷狗音乐")
-    mapping = {"1": "qq", "2": "kuwo", "3": "kugou", "qq": "qq", "kuwo": "kuwo", "kugou": "kugou"}
+    print("4. 网易云音乐")
+    mapping = {
+        "1": "qq",
+        "2": "kuwo",
+        "3": "kugou",
+        "4": "netease",
+        "qq": "qq",
+        "kuwo": "kuwo",
+        "kugou": "kugou",
+        "netease": "netease",
+        "wangyiyun": "netease",
+    }
     value = input("平台 [1]: ").strip().lower() or "1"
     return mapping.get(value, "")
 
@@ -203,12 +214,14 @@ def run_interactive() -> int:
     elif platform_id == "kuwo":
         settings["format_kwm"] = prompt_choice("kwm 输出格式 auto/flac/m4a/mp3/wav", str(settings.get("format_kwm", "auto")), supported_transcode_formats())
         settings["signature_file"] = str(default_kuwo_signature_path(paths))
-    else:
+    elif platform_id == "kugou":
         settings["target_format_kgma"] = prompt_choice("kgma/kgm/vpr 输出格式 auto/flac/m4a/mp3/wav", str(settings.get("target_format_kgma", "auto")), supported_transcode_formats())
         settings["target_format_kgg"] = prompt_choice("kgg 输出格式 auto/flac/m4a/mp3/wav", str(settings.get("target_format_kgg", "auto")), supported_transcode_formats())
         auto_key = auto_find_kugou_key(paths)
         if auto_key is not None:
             settings["key_file"] = str(auto_key)
+    else:
+        settings["target_format_ncm"] = prompt_choice("ncm 输出格式 auto/flac/m4a/mp3/wav", str(settings.get("target_format_ncm", "auto")), supported_transcode_formats())
 
     config[platform_id].update(settings)
     config["shared"].update(shared)
@@ -228,7 +241,7 @@ def build_parser(paths: RuntimePaths) -> argparse.ArgumentParser:
         epilog=format_help_epilog(paths),
     )
     sub = parser.add_subparsers(dest="platform")
-    for platform_id in ("qq", "kuwo", "kugou"):
+    for platform_id in ("qq", "kuwo", "kugou", "netease"):
         platform_parser = sub.add_parser(platform_id, help=f"{PLATFORM_LABELS[platform_id]} 解密")
         platform_sub = platform_parser.add_subparsers(dest="command")
         dec = platform_sub.add_parser("decrypt", help="执行解密")
@@ -243,11 +256,13 @@ def build_parser(paths: RuntimePaths) -> argparse.ArgumentParser:
             dec.add_argument("--format-kwm", choices=supported_transcode_formats(), help="kwm 输出格式")
             dec.add_argument("--exe-path", help="酷我 exe 路径")
             dec.add_argument("--signature-file", help="酷我签名文件路径")
-        else:
+        elif platform_id == "kugou":
             dec.add_argument("--kgg-db", help="KGMusicV3.db 路径")
             dec.add_argument("--key-file", help="kugou_key.xz 路径")
             dec.add_argument("--format-kgma", choices=supported_transcode_formats(), help="kgma/kgm/vpr 输出格式")
             dec.add_argument("--format-kgg", choices=supported_transcode_formats(), help="kgg 输出格式")
+        else:
+            dec.add_argument("--format-ncm", choices=supported_transcode_formats(), help="ncm 输出格式")
         cover_group = dec.add_mutually_exclusive_group()
         cover_group.add_argument("--embed-cover", dest="embed_cover_art", action="store_true", help="自动补封面（所有平台共用），可能会导致转换变慢")
         cover_group.add_argument("--no-embed-cover", dest="embed_cover_art", action="store_false", help="不自动补封面")
@@ -293,7 +308,7 @@ def main(argv: list[str] | None = None) -> int:
             settings["signature_file"] = args.signature_file
         elif not str(settings.get("signature_file", "")).strip():
             settings["signature_file"] = str(default_kuwo_signature_path(paths))
-    else:
+    elif platform_id == "kugou":
         if args.kgg_db:
             settings["kgg_db_path"] = args.kgg_db
         if args.key_file:
@@ -302,6 +317,9 @@ def main(argv: list[str] | None = None) -> int:
             settings["target_format_kgma"] = validate_target_format(args.format_kgma)
         if args.format_kgg:
             settings["target_format_kgg"] = validate_target_format(args.format_kgg)
+    else:
+        if args.format_ncm:
+            settings["target_format_ncm"] = validate_target_format(args.format_ncm)
     config[platform_id].update(settings)
     recursive = not args.no_recursive
     return _run_platform(platform_id, config, input_override=args.input, output_override=args.output, recursive_override=recursive, interactive=False)
