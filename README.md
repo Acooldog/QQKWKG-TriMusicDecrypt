@@ -1,6 +1,6 @@
 ﻿<div align="center">
 
-# QKKDecrypt - QQ酷狗酷我音乐解密工具
+# QKKDecrypt - QQ酷狗酷我网易云音乐解密工具
 
 </div>
 
@@ -47,7 +47,7 @@
 
 ---
 # `QKKDecrypt` 介绍
-- 中文名: `QQ酷狗酷我音乐解密工具`
+- 中文名: `QQ酷狗酷我音乐网易云解密工具`
 - 英文名: `QKKDecrypt`
 - 项目地址: `https://github.com/Acooldog/QQKWKG-TriMusicDecrypt`
   
@@ -55,6 +55,7 @@ main分支为console版本
 main-ui分支为UI版本，UI框架为pyside6
 
 qq音乐解密模型思路是[qqmusic_decrypt](https://github.com/luyikk/qqmusic_decrypt)项目提供的<br>
+网易云音乐解密模型是python的ncmdump库<br>
 其他的解密模型均自主抱着学习以及尊重正版的名义逆向学习<br>
 仅供学习交流使用，禁止商用！禁止倒卖！倒卖者将举报平台并持续追责！！！
 
