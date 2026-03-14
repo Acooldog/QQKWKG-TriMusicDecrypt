@@ -186,16 +186,20 @@ def run_interactive() -> int:
 
     if platform_id == "qq":
         rules = dict(settings.get("format_rules", {}))
-        rules["mflac"] = prompt_choice("mflac 输出格式 flac/ogg/m4a/mp3/wav", str(rules.get("mflac", "flac")), supported_transcode_formats())
-        rules["mgg"] = prompt_choice("mgg 输出格式 flac/ogg/m4a/mp3/wav", str(rules.get("mgg", "ogg")), supported_transcode_formats())
-        rules["mmp4"] = prompt_choice("mmp4 输出格式 flac/ogg/m4a/mp3/wav", str(rules.get("mmp4", "m4a")), supported_transcode_formats())
+        rules["mflac"] = prompt_choice("mflac 输出格式 flac/m4a/mp3/wav", str(rules.get("mflac", "flac")), supported_transcode_formats())
+        rules["mgg"] = prompt_choice("mgg 输出格式 flac/m4a/mp3/wav", str(rules.get("mgg", "m4a")), supported_transcode_formats())
+        rules["mmp4"] = prompt_choice("mmp4 输出格式 flac/m4a/mp3/wav", str(rules.get("mmp4", "m4a")), supported_transcode_formats())
         settings["format_rules"] = rules
+        settings["embed_cover_art"] = prompt_bool(
+            "是否自动补封面（可能会导致转换明显变慢）",
+            bool(settings.get("embed_cover_art", True)),
+        )
     elif platform_id == "kuwo":
-        settings["format_kwm"] = prompt_choice("kwm 输出格式 auto/flac/ogg/m4a/mp3/wav", str(settings.get("format_kwm", "auto")), supported_transcode_formats())
+        settings["format_kwm"] = prompt_choice("kwm 输出格式 auto/flac/m4a/mp3/wav", str(settings.get("format_kwm", "auto")), supported_transcode_formats())
         settings["signature_file"] = str(default_kuwo_signature_path(paths))
     else:
-        settings["target_format_kgma"] = prompt_choice("kgma/kgm/vpr 输出格式 auto/flac/ogg/m4a/mp3/wav", str(settings.get("target_format_kgma", "auto")), supported_transcode_formats())
-        settings["target_format_kgg"] = prompt_choice("kgg 输出格式 auto/flac/ogg/m4a/mp3/wav", str(settings.get("target_format_kgg", "auto")), supported_transcode_formats())
+        settings["target_format_kgma"] = prompt_choice("kgma/kgm/vpr 输出格式 auto/flac/m4a/mp3/wav", str(settings.get("target_format_kgma", "auto")), supported_transcode_formats())
+        settings["target_format_kgg"] = prompt_choice("kgg 输出格式 auto/flac/m4a/mp3/wav", str(settings.get("target_format_kgg", "auto")), supported_transcode_formats())
         auto_key = auto_find_kugou_key(paths)
         if auto_key is not None:
             settings["key_file"] = str(auto_key)
@@ -228,6 +232,10 @@ def build_parser(paths: RuntimePaths) -> argparse.ArgumentParser:
             dec.add_argument("--format-mflac", choices=[item for item in supported_transcode_formats() if item != "auto"], help="mflac 输出格式")
             dec.add_argument("--format-mgg", choices=[item for item in supported_transcode_formats() if item != "auto"], help="mgg 输出格式")
             dec.add_argument("--format-mmp4", choices=[item for item in supported_transcode_formats() if item != "auto"], help="mmp4 输出格式")
+            cover_group = dec.add_mutually_exclusive_group()
+            cover_group.add_argument("--embed-cover", dest="embed_cover_art", action="store_true", help="自动补封面，可能会导致转换变慢")
+            cover_group.add_argument("--no-embed-cover", dest="embed_cover_art", action="store_false", help="不自动补封面")
+            dec.set_defaults(embed_cover_art=None)
         elif platform_id == "kuwo":
             dec.add_argument("--format-kwm", choices=supported_transcode_formats(), help="kwm 输出格式")
             dec.add_argument("--exe-path", help="酷我 exe 路径")
@@ -262,6 +270,8 @@ def main(argv: list[str] | None = None) -> int:
             if value:
                 rules[source_key] = validate_target_format(value)
         settings["format_rules"] = rules
+        if args.embed_cover_art is not None:
+            settings["embed_cover_art"] = bool(args.embed_cover_art)
     elif platform_id == "kuwo":
         if args.format_kwm:
             settings["format_kwm"] = validate_target_format(args.format_kwm)

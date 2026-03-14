@@ -10,8 +10,9 @@ from src.Infrastructure.transcoder import detect_audio_container
 
 
 SUPPORTED_SUFFIXES = {".mflac", ".mgg", ".mmp4"}
-DEFAULT_RULES = {"mflac": "flac", "mgg": "ogg", "mmp4": "m4a"}
-WHITELIST = {"flac", "ogg", "m4a", "mp3", "wav"}
+DEFAULT_RULES = {"mflac": "flac", "mgg": "m4a", "mmp4": "m4a"}
+RAW_CONTAINER_RULES = {"mflac": "flac", "mgg": "ogg", "mmp4": "m4a"}
+WHITELIST = {"flac", "m4a", "mp3", "wav"}
 
 
 @dataclass(slots=True)
@@ -66,7 +67,8 @@ class QQPlatformAdapter:
         FridaDecryptGateway, pick_safe_tmp_dir = self._load_runtime()
         if self._gateway is None:
             self._gateway = FridaDecryptGateway()
-        default_ext = DEFAULT_RULES.get(input_path.suffix.lower().lstrip("."), "flac")
+        source_suffix = input_path.suffix.lower().lstrip(".")
+        default_ext = RAW_CONTAINER_RULES.get(source_suffix, "flac")
         safe_tmp_root = pathlib.Path(pick_safe_tmp_dir(str(work_dir))).resolve()
         safe_tmp_root.mkdir(parents=True, exist_ok=True)
         safe_output = safe_tmp_root / f"qq_{time.time_ns()}.{default_ext}"

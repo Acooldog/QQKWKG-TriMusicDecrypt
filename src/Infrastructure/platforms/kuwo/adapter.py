@@ -39,10 +39,13 @@ class KuwoPlatformAdapter:
 
     def predicted_extension(self, input_path: pathlib.Path, settings: dict) -> str | None:
         value = str(settings.get("format_kwm", "auto") or "auto").strip().lower().lstrip(".")
+        if value == "ogg":
+            value = "m4a"
         return None if value == "auto" else value
 
     def desired_target_format(self, input_path: pathlib.Path, settings: dict) -> str:
-        return str(settings.get("format_kwm", "auto") or "auto").strip().lower().lstrip(".") or "auto"
+        value = str(settings.get("format_kwm", "auto") or "auto").strip().lower().lstrip(".") or "auto"
+        return "m4a" if value == "ogg" else value
 
     def _snapshot_work_outputs(self, work_dir: pathlib.Path) -> dict[pathlib.Path, tuple[int, int]]:
         snapshot: dict[pathlib.Path, tuple[int, int]] = {}

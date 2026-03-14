@@ -108,7 +108,8 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
         "qq": {
             "input_dir": str(DEFAULT_QQ_INPUT),
             "process_match": "qqmusic",
-            "format_rules": {"mflac": "flac", "mgg": "ogg", "mmp4": "m4a"},
+            "embed_cover_art": True,
+            "format_rules": {"mflac": "flac", "mgg": "m4a", "mmp4": "m4a"},
         },
         "kuwo": {
             "input_dir": str(DEFAULT_KUWO_INPUT),
@@ -129,6 +130,23 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
         value = payload.get(section)
         if isinstance(value, dict):
             config[section].update(value)
+    format_rules = config["qq"].get("format_rules")
+    if not isinstance(format_rules, dict):
+        format_rules = {"mflac": "flac", "mgg": "m4a", "mmp4": "m4a"}
+    for key in ("mflac", "mgg", "mmp4"):
+        value = str(format_rules.get(key) or "").strip().lower()
+        if value == "ogg":
+            value = "m4a"
+        if value not in SUPPORTED_TARGET_FORMATS:
+            value = "m4a" if key != "mflac" else "flac"
+        format_rules[key] = value
+    config["qq"]["format_rules"] = format_rules
+    embed_cover_art = config["qq"].get("embed_cover_art", True)
+    if isinstance(embed_cover_art, str):
+        embed_cover_art = embed_cover_art.strip().lower() in {"1", "true", "yes", "y", "on"}
+    else:
+        embed_cover_art = bool(embed_cover_art)
+    config["qq"]["embed_cover_art"] = embed_cover_art
     config["shared"]["cli_collision_policy"] = str(config["shared"].get("cli_collision_policy", "suffix") or "suffix").lower()
     config["shared"]["recursive"] = bool(config["shared"].get("recursive", True))
     config["kuwo"]["format_kwm"] = normalize_target_format(config["kuwo"].get("format_kwm", "auto"))

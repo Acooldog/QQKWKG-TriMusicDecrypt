@@ -10,12 +10,12 @@ class FormatPolicyService:
 
     DEFAULT_RULES = {
         "mflac": "flac",
-        "mgg": "ogg",
+        "mgg": "m4a",
         "mmp4": "m4a",
     }
 
     # FORMAT_WHITELIST = {"flac", "ogg", "m4a", "aac", "mp3", "wav"}
-    FORMAT_WHITELIST = {"flac", "ogg", "m4a", "mp3", "wav"}
+    FORMAT_WHITELIST = {"flac", "m4a", "mp3", "wav"}
     ALIASES = {"acc": "aac"}
 
     def normalize_format(self, fmt: str) -> str:
