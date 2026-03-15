@@ -41,6 +41,7 @@ def _query_processes(filter_script: str) -> list[ProcessMatch]:
         "  $path=''; "
         "  try { $path = $p.Path } catch {} "
         "  if(-not $path){ try { $path = $p.MainModule.FileName } catch {} } "
+        "  if(-not $path){ try { $cim = Get-CimInstance Win32_Process -Filter (\"ProcessId = \" + $p.Id); if($cim){ $path = $cim.ExecutablePath } } catch {} } "
         "  $rows += [pscustomobject]@{pid=$p.Id;name=$p.ProcessName;exe_path=$path} "
         "} "
         "$rows | Sort-Object pid | ConvertTo-Json -Compress"

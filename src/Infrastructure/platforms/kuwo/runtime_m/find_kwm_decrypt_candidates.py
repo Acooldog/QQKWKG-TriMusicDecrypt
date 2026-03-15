@@ -24,7 +24,7 @@ from process_guard import ProcessGuard
 
 DEFAULT_PROCESS = "kwmusic.exe"
 DEFAULT_MUSIC_DIR = r"C:\Users\01080\Documents\Frontier Developments\Planet Coaster\UserMusic\MusicPack"
-DEFAULT_EXE_PATH = r"M:\kuwo\kuwomusic\9.5.0.0_W1\bin\kwmusic.exe"
+DEFAULT_EXE_PATH = ""
 DEFAULT_DURATION = 120
 DEFAULT_TOPN = 80
 DEFAULT_SAMPLE_RATE = 0.35
@@ -82,7 +82,17 @@ def process_exists(device: frida.core.Device, pid: int) -> bool:
     for proc in device.enumerate_processes():
         if proc.pid == pid:
             return True
-    return False
+    try:
+        session = device.attach(pid)
+    except Exception:
+        return False
+    try:
+        return True
+    finally:
+        try:
+            session.detach()
+        except Exception:
+            pass
 
 
 def build_path_regex(music_dir: pathlib.Path) -> str:
@@ -406,3 +416,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

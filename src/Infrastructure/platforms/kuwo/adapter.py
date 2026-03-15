@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import pathlib
@@ -26,7 +26,30 @@ class KuwoPlatformAdapter:
     def validate_runtime(self, settings: dict) -> tuple[bool, str | None]:
         process_name = str(settings.get("process_name", "kwmusic.exe") or "kwmusic.exe")
         info = find_process_by_name(process_name)
-        return (info is not None, None if info is not None else "酷我音乐未运行")
+        if info is None:
+            return False, "???????"
+        try:
+            self._resolve_exe_path(settings)
+        except RuntimeError:
+            return False, "???????????????????????"
+        return True, None
+
+    def _resolve_exe_path(self, settings: dict) -> str:
+        process_name = str(settings.get("process_name", "kwmusic.exe") or "kwmusic.exe")
+        configured = str(settings.get("exe_path", "") or "").strip()
+        process_info = find_process_by_name(process_name)
+
+        if process_info and process_info.exe_path:
+            process_path = pathlib.Path(process_info.exe_path)
+            if process_path.exists():
+                return str(process_path.resolve())
+
+        if configured:
+            configured_path = pathlib.Path(configured)
+            if configured_path.exists():
+                return str(configured_path.resolve())
+
+        raise RuntimeError("exe_not_found")
 
     def collect_files(self, input_path: pathlib.Path, recursive: bool) -> list[pathlib.Path]:
         if input_path.is_file():
@@ -39,10 +62,13 @@ class KuwoPlatformAdapter:
 
     def predicted_extension(self, input_path: pathlib.Path, settings: dict) -> str | None:
         value = str(settings.get("format_kwm", "auto") or "auto").strip().lower().lstrip(".")
+        if value == "ogg":
+            value = "m4a"
         return None if value == "auto" else value
 
     def desired_target_format(self, input_path: pathlib.Path, settings: dict) -> str:
-        return str(settings.get("format_kwm", "auto") or "auto").strip().lower().lstrip(".") or "auto"
+        value = str(settings.get("format_kwm", "auto") or "auto").strip().lower().lstrip(".") or "auto"
+        return "m4a" if value == "ogg" else value
 
     def _snapshot_work_outputs(self, work_dir: pathlib.Path) -> dict[pathlib.Path, tuple[int, int]]:
         snapshot: dict[pathlib.Path, tuple[int, int]] = {}
@@ -178,6 +204,9 @@ class KuwoPlatformAdapter:
 
     def decrypt_one(self, input_path: pathlib.Path, work_dir: pathlib.Path, settings: dict, *, log_dir: pathlib.Path) -> dict:
         kwm_decrypt_mvp = self._load_runtime()
+        process_name = str(settings.get("process_name", kwm_decrypt_mvp.DEFAULT_PROCESS_NAME) or kwm_decrypt_mvp.DEFAULT_PROCESS_NAME)
+        process_info = find_process_by_name(process_name)
+        resolved_exe_path = self._resolve_exe_path(settings)
         report_dir = log_dir / "kuwo_reports"
         output_dir = work_dir / "raw"
         before_snapshot = self._snapshot_work_outputs(work_dir)
@@ -186,9 +215,10 @@ class KuwoPlatformAdapter:
             output_dir=output_dir,
             report_dir=report_dir,
             final_output_dir=work_dir,
-            exe_path=str(settings.get("exe_path", "") or kwm_decrypt_mvp.DEFAULT_EXE_PATH),
+            exe_path=resolved_exe_path,
             signature_file=str(settings.get("signature_file", "") or kwm_decrypt_mvp.DEFAULT_SIGNATURE_FILE),
-            process_name=str(settings.get("process_name", kwm_decrypt_mvp.DEFAULT_PROCESS_NAME) or kwm_decrypt_mvp.DEFAULT_PROCESS_NAME),
+            process_name=process_name,
+            pid=int(process_info.pid) if process_info is not None and int(process_info.pid or 0) > 0 else None,
             timeout_sec=int(settings.get("timeout_sec", 12) or 12),
             verbose=False,
         )
