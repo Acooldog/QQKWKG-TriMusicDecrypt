@@ -6,7 +6,7 @@ import threading
 from typing import Any
 
 from PySide6.QtCore import QObject, QPoint, Qt, QTimer, Signal
-from PySide6.QtGui import QDesktopServices, QIcon, QMouseEvent
+from PySide6.QtGui import QDesktopServices, QIcon, QMouseEvent, QWheelEvent
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -19,12 +19,14 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListView,
     QMessageBox,
     QPushButton,
     QPlainTextEdit,
     QRadioButton,
     QScrollArea,
     QSizePolicy,
+    QTabBar,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -66,6 +68,27 @@ FORMATS = ["auto"] + [item for item in supported_transcode_formats()
 QQ_RULE_FORMATS = ["flac", "m4a", "mp3", "wav"]
 
 
+class GuardedComboBox(QComboBox):
+    def __init__(self) -> None:
+        super().__init__()
+        popup = QListView()
+        popup.setObjectName("ComboPopup")
+        popup.setVerticalScrollMode(QListView.ScrollMode.ScrollPerPixel)
+        self.setView(popup)
+        self.setMaxVisibleItems(12)
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        if self.hasFocus() or self.view().isVisible():
+            super().wheelEvent(event)
+            return
+        event.ignore()
+
+
+class NoWheelTabBar(QTabBar):
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        event.ignore()
+
+
 def build_app_stylesheet() -> str:
     return f"""
     QWidget {{ color: {TEXT}; font-family: Microsoft YaHei UI; font-size: 13px; }}
@@ -83,6 +106,17 @@ def build_app_stylesheet() -> str:
     QLineEdit, QComboBox, QPlainTextEdit {{ background: #11151B; border: 1px solid {BORDER}; border-radius: 10px; padding: 8px 10px; selection-background-color: #3B82F6; }}
     QLineEdit:hover, QComboBox:hover, QPlainTextEdit:hover {{ border-color: #3E5678; }}
     QLineEdit:focus, QComboBox:focus, QPlainTextEdit:focus {{ border: 1px solid {ACCENT}; }}
+    QComboBox {{ padding-right: 34px; }}
+    QComboBox::drop-down {{ subcontrol-origin: padding; subcontrol-position: top right; width: 28px; border-left: 1px solid {BORDER}; background: #1A1F28; border-top-right-radius: 10px; border-bottom-right-radius: 10px; }}
+    QComboBox::down-arrow {{ image: none; width: 0px; height: 0px; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid {TEXT_MUTED}; margin-right: 8px; }}
+    QComboBox QAbstractItemView {{ background: #11151B; color: {TEXT}; border: 1px solid #3E5678; outline: none; selection-background-color: {ACCENT}; selection-color: white; padding: 4px; }}
+    QComboBox QAbstractItemView::item {{ min-height: 28px; padding: 6px 10px; background: #11151B; color: {TEXT}; }}
+    QComboBox QAbstractItemView::item:selected {{ background: {ACCENT}; color: white; }}
+    QComboBox QAbstractItemView::item:hover {{ background: #223148; color: {TEXT}; }}
+    QListView#ComboPopup {{ background: #11151B; color: {TEXT}; border: 1px solid #3E5678; outline: none; selection-background-color: {ACCENT}; selection-color: white; }}
+    QListView#ComboPopup::item {{ min-height: 28px; padding: 6px 10px; background: #11151B; color: {TEXT}; }}
+    QListView#ComboPopup::item:selected {{ background: {ACCENT}; color: white; }}
+    QListView#ComboPopup::item:hover {{ background: #223148; color: {TEXT}; }}
     QPushButton {{ border-radius: 10px; padding: 8px 14px; border: 1px solid {BORDER}; background: #222834; }}
     QPushButton#PrimaryButton {{ background: {ACCENT}; border-color: {ACCENT}; color: white; font-weight: 700; }}
     QPushButton#SecondaryButton {{ background: #243042; border-color: #314055; }}
@@ -368,7 +402,7 @@ class PlatformCard(QFrame):
         root.addLayout(button_row)
 
     def add_format_combo(self, key: str, label: str, values: list[str]) -> None:
-        combo = QComboBox()
+        combo = GuardedComboBox()
         combo.addItems(values)
         combo.setObjectName("ComboBox")
         row = self.form_layout.rowCount()
@@ -497,6 +531,7 @@ class MainWindow(QWidget):
         self._submission_inflight: set[str] = set()
         self._drag_origin: QPoint | None = None
         self._cards: dict[str, PlatformCard] = {}
+        self._tab_platform_ids: list[str] = []
         self._build_ui()
         self._connect_signals()
         self._load_config_into_widgets()
@@ -569,8 +604,21 @@ class MainWindow(QWidget):
         shared_title = QLabel("共享设置")
         shared_title.setObjectName("SectionTitle")
         shared_layout.addWidget(shared_title)
+
+        self.output_mode_group = QButtonGroup(shared_card)
+        self.output_mode_shared_radio = QRadioButton("共享统一输出目录")
+        self.output_mode_platform_radio = QRadioButton("每个平台单独一个输出目录")
+        self.output_mode_group.addButton(self.output_mode_shared_radio)
+        self.output_mode_group.addButton(self.output_mode_platform_radio)
+        self.output_mode_note = QLabel(
+            "共享模式下所有平台共用一个输出目录；分平台模式下会在基础输出目录下自动创建 qq / kuwo / kugou / netease 子目录。"
+        )
+        self.output_mode_note.setObjectName("MutedText")
+        self.output_mode_note.setWordWrap(True)
+
         self.output_field = PathField("共享输出目录", directory=True)
         self.recursive_checkbox = QCheckBox("递归扫描子目录")
+
         self.cover_mode_group = QButtonGroup(shared_card)
         self.cover_enable_radio = QRadioButton("自动补封面")
         self.cover_disable_radio = QRadioButton("不添加封面")
@@ -585,10 +633,22 @@ class MainWindow(QWidget):
         self.album_disable_radio = QRadioButton("不补充专辑信息")
         self.album_mode_group.addButton(self.album_enable_radio)
         self.album_mode_group.addButton(self.album_disable_radio)
-        self.album_note = QLabel("提示：专辑信息补全目前仅对 m4a 生效，因为其他格式自带信息，优先使用本地已有信息，缺失时才会网络兜底。会变慢大约5倍\n" \
-        "由于wav特殊的文件格式，所以无法写入封面以及专辑信息")
+        self.album_note = QLabel(
+            "提示：专辑信息补全目前仅对 m4a 生效，因为其他格式自带信息，优先使用本地已有信息，缺失时才会网络兜底。会变慢大约 5 倍。\n"
+            "由于 wav 的格式限制，无法写入封面以及专辑信息。"
+        )
         self.album_note.setObjectName("MutedText")
         self.album_note.setWordWrap(True)
+
+        output_mode_row = QHBoxLayout()
+        output_mode_row.setContentsMargins(0, 0, 0, 0)
+        output_mode_row.setSpacing(14)
+        output_mode_label = QLabel("输出目录模式")
+        output_mode_label.setObjectName("FieldLabel")
+        output_mode_row.addWidget(output_mode_label)
+        output_mode_row.addWidget(self.output_mode_shared_radio)
+        output_mode_row.addWidget(self.output_mode_platform_radio)
+        output_mode_row.addStretch(1)
 
         cover_row = QHBoxLayout()
         cover_row.setContentsMargins(0, 0, 0, 0)
@@ -623,6 +683,8 @@ class MainWindow(QWidget):
         action_row.addWidget(self.reload_button)
         action_row.addWidget(self.open_output_button)
         action_row.addStretch(1)
+        shared_layout.addLayout(output_mode_row)
+        shared_layout.addWidget(self.output_mode_note)
         shared_layout.addWidget(self.output_field)
         shared_layout.addWidget(self.recursive_checkbox)
         shared_layout.addLayout(cover_row)
@@ -644,6 +706,7 @@ class MainWindow(QWidget):
         tabs_hint.setWordWrap(True)
         self.platform_tabs = QTabWidget()
         self.platform_tabs.setDocumentMode(True)
+        self.platform_tabs.setTabBar(NoWheelTabBar())
         tabs_layout.addWidget(tabs_title)
         tabs_layout.addWidget(tabs_hint)
         tabs_layout.addWidget(self.platform_tabs, 1)
@@ -656,6 +719,7 @@ class MainWindow(QWidget):
             page_layout.setSpacing(0)
             page_layout.addWidget(card)
             page_layout.addStretch(1)
+            self._tab_platform_ids.append(card.platform_id)
             self.platform_tabs.addTab(page, title_text)
 
         qq_card = PlatformCard("qq", "QQ音乐", "运行期解密，开始任务前会检查 QQ 音乐进程。")
@@ -663,6 +727,7 @@ class MainWindow(QWidget):
         qq_card.add_format_combo("mgg", "mgg 输出格式", QQ_RULE_FORMATS)
         qq_card.add_format_combo("mmp4", "mmp4 输出格式", QQ_RULE_FORMATS)
         add_platform_tab(qq_card, "QQ音乐")
+        qq_card.add_extra_field("output_dir", "当前平台输出目录", directory=True)
         self._cards["qq"] = qq_card
 
         kuwo_card = PlatformCard(
@@ -671,6 +736,7 @@ class MainWindow(QWidget):
         kuwo_card.add_extra_field("exe_path", "酷我程序路径（可选）", directory=False)
         kuwo_card.add_extra_field("signature_file", "签名文件路径", directory=False)
         add_platform_tab(kuwo_card, "酷我音乐")
+        kuwo_card.add_extra_field("output_dir", "当前平台输出目录", directory=True)
         self._cards["kuwo"] = kuwo_card
 
         kugou_card = PlatformCard("kugou", "酷狗音乐", "文件级离线解密，不要求 KuGou 运行。")
@@ -682,11 +748,13 @@ class MainWindow(QWidget):
         kugou_card.add_extra_field(
             "kgg_db_path", "KGMusicV3.db 路径", directory=False)
         add_platform_tab(kugou_card, "酷狗音乐")
+        kugou_card.add_extra_field("output_dir", "当前平台输出目录", directory=True)
         self._cards["kugou"] = kugou_card
 
         netease_card = PlatformCard("netease", "网易云音乐", "文件级离线解密，直接处理 .ncm 文件，不要求网易云音乐运行。")
         netease_card.add_format_combo("target_format_ncm", "ncm 输出格式", FORMATS)
         add_platform_tab(netease_card, "网易云音乐")
+        netease_card.add_extra_field("output_dir", "当前平台输出目录", directory=True)
         self._cards["netease"] = netease_card
 
         right_card = QFrame()
@@ -714,12 +782,16 @@ class MainWindow(QWidget):
     def _connect_signals(self) -> None:
         self.output_field.button.clicked.connect(
             lambda: self._choose_path(self.output_field))
+        self.output_mode_shared_radio.toggled.connect(self._update_output_mode_widgets)
+        self.output_mode_platform_radio.toggled.connect(self._update_output_mode_widgets)
         self.save_button.clicked.connect(self._save_config_from_widgets)
         self.reload_button.clicked.connect(self._reload_config)
         self.open_output_button.clicked.connect(self._open_output_dir)
         for platform_id, card in self._cards.items():
             card.input_field.button.clicked.connect(
                 lambda _=False, pid=platform_id: self._choose_path(self._cards[pid].input_field))
+            card.extra_field("output_dir").button.clicked.connect(
+                lambda _=False, pid=platform_id: self._choose_path(self._cards[pid].extra_field("output_dir")))
             card.run_requested.connect(self._handle_platform_action)
             card.stop_requested.connect(self._handle_platform_stop)
         self._cards["kuwo"].extra_field("exe_path").button.clicked.connect(lambda: self._choose_file(
@@ -743,9 +815,15 @@ class MainWindow(QWidget):
     def _load_config_into_widgets(self) -> None:
         self.root_config, self.config = load_config(self.paths)
         shared = self.config["shared"]
+        output_mode = str(shared.get("output_mode", "shared") or "shared").lower()
+        if output_mode == "per_platform":
+            self.output_mode_platform_radio.setChecked(True)
+        else:
+            self.output_mode_shared_radio.setChecked(True)
         self.output_field.setText(
             str(shared.get("output_dir", self.paths.output_dir)))
         self.recursive_checkbox.setChecked(bool(shared.get("recursive", True)))
+        self._update_output_mode_widgets()
         if bool(shared.get("embed_cover_art", True)):
             self.cover_enable_radio.setChecked(True)
         else:
@@ -764,6 +842,7 @@ class MainWindow(QWidget):
         self._cards["qq"].set_format_value("mmp4", str(
             (qq.get("format_rules") or {}).get("mmp4", "m4a")))
         kuwo = self.config["kuwo"]
+        self._cards["qq"].extra_field("output_dir").setText(str(qq.get("output_dir", pathlib.Path(self.paths.output_dir) / "qq")))
         self._cards["kuwo"].input_field.setText(str(kuwo.get("input_dir", "")))
         self._cards["kuwo"].set_format_value(
             "format_kwm", str(kuwo.get("format_kwm", "auto")))
@@ -771,6 +850,8 @@ class MainWindow(QWidget):
             str(kuwo.get("exe_path", "")))
         self._cards["kuwo"].extra_field("signature_file").setText(
             str(kuwo.get("signature_file", "")))
+        self._cards["kuwo"].extra_field("output_dir").setText(
+            str(kuwo.get("output_dir", pathlib.Path(self.paths.output_dir) / "kuwo")))
 
         kugou = self.config["kugou"]
         self._cards["kugou"].input_field.setText(
@@ -783,14 +864,19 @@ class MainWindow(QWidget):
             str(kugou.get("key_file", "")))
         self._cards["kugou"].extra_field("kgg_db_path").setText(
             str(kugou.get("kgg_db_path", "")))
+        self._cards["kugou"].extra_field("output_dir").setText(
+            str(kugou.get("output_dir", pathlib.Path(self.paths.output_dir) / "kugou")))
         netease = self.config["netease"]
         self._cards["netease"].input_field.setText(
             str(netease.get("input_dir", "")))
         self._cards["netease"].set_format_value(
             "target_format_ncm", str(netease.get("target_format_ncm", "auto")))
 
+        self._cards["netease"].extra_field("output_dir").setText(
+            str(netease.get("output_dir", pathlib.Path(self.paths.output_dir) / "netease")))
     def _save_config_from_widgets(self, *, announce: bool = True) -> None:
         shared = {
+            "output_mode": "per_platform" if self.output_mode_platform_radio.isChecked() else "shared",
             "output_dir": self.output_field.text() or str(self.paths.output_dir),
             "cli_collision_policy": "suffix",
             "recursive": self.recursive_checkbox.isChecked(),
@@ -800,6 +886,7 @@ class MainWindow(QWidget):
         qq = {
             "input_dir": self._cards["qq"].input_field.text(),
             "process_match": "qqmusic",
+            "output_dir": self._cards["qq"].extra_field("output_dir").text(),
             "format_rules": {
                 "mflac": self._cards["qq"].format_value("mflac"),
                 "mgg": self._cards["qq"].format_value("mgg"),
@@ -809,12 +896,14 @@ class MainWindow(QWidget):
         kuwo = {
             "input_dir": self._cards["kuwo"].input_field.text(),
             "process_name": "kwmusic.exe",
+            "output_dir": self._cards["kuwo"].extra_field("output_dir").text(),
             "exe_path": self._cards["kuwo"].extra_field("exe_path").text(),
             "signature_file": self._cards["kuwo"].extra_field("signature_file").text(),
             "format_kwm": self._cards["kuwo"].format_value("format_kwm"),
         }
         kugou = {
             "input_dir": self._cards["kugou"].input_field.text(),
+            "output_dir": self._cards["kugou"].extra_field("output_dir").text(),
             "kgg_db_path": self._cards["kugou"].extra_field("kgg_db_path").text(),
             "key_file": self._cards["kugou"].extra_field("key_file").text(),
             "target_format_kgma": self._cards["kugou"].format_value("target_format_kgma"),
@@ -822,6 +911,7 @@ class MainWindow(QWidget):
         }
         netease = {
             "input_dir": self._cards["netease"].input_field.text(),
+            "output_dir": self._cards["netease"].extra_field("output_dir").text(),
             "target_format_ncm": self._cards["netease"].format_value("target_format_ncm"),
         }
         self.config = {"shared": shared, "qq": qq,
@@ -835,10 +925,39 @@ class MainWindow(QWidget):
         self._append_log("已重新读取配置文件。")
 
     def _open_output_dir(self) -> None:
-        output_dir = pathlib.Path(
-            self.output_field.text() or str(self.paths.output_dir))
+        if self.output_mode_platform_radio.isChecked() and self._tab_platform_ids:
+            current_index = max(0, self.platform_tabs.currentIndex())
+            platform_id = self._tab_platform_ids[current_index]
+            output_dir = self._resolve_output_dir(platform_id)
+        else:
+            output_dir = pathlib.Path(
+                self.output_field.text() or str(self.paths.output_dir)
+            )
         output_dir.mkdir(parents=True, exist_ok=True)
         QDesktopServices.openUrl(output_dir.as_uri())
+
+    def _update_output_mode_widgets(self) -> None:
+        per_platform = self.output_mode_platform_radio.isChecked()
+        self.output_field.setVisible(not per_platform)
+        for card in self._cards.values():
+            card.extra_field("output_dir").setVisible(per_platform)
+        if per_platform:
+            self.output_field.label.setText("基础输出目录")
+            self.output_mode_note.setText(
+                "分平台模式已启用：每个平台都可以在各自标签页里设置独立的输出目录。"
+            )
+        else:
+            self.output_field.label.setText("共享输出目录")
+            self.output_mode_note.setText("共享模式已启用：所有平台共用同一个输出目录。")
+
+    def _resolve_output_dir(self, platform_id: str) -> pathlib.Path:
+        base_output = pathlib.Path(self.output_field.text() or str(self.paths.output_dir))
+        if self.output_mode_platform_radio.isChecked():
+            configured = self._cards[platform_id].extra_field("output_dir").text()
+            if configured:
+                return pathlib.Path(configured)
+            return base_output / platform_id
+        return base_output
 
     def _choose_path(self, field: PathField) -> None:
         start = field.text() or str(self.paths.root_dir)
@@ -860,8 +979,7 @@ class MainWindow(QWidget):
             return
         self._save_config_from_widgets()
         input_path = pathlib.Path(self._cards[platform_id].input_field.text())
-        output_dir = pathlib.Path(
-            self.output_field.text() or str(self.paths.output_dir))
+        output_dir = self._resolve_output_dir(platform_id)
         settings = dict(self.config[platform_id])
         settings["embed_cover_art"] = bool(self.config.get("shared", {}).get("embed_cover_art", True))
         settings["supplement_album_metadata"] = bool(self.config.get("shared", {}).get("supplement_album_metadata", False))
