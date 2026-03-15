@@ -103,6 +103,7 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
     config = {
         "shared": {
             "output_dir": str(paths.output_dir),
+            "output_mode": "shared",
             "cli_collision_policy": "suffix",
             "recursive": True,
             "embed_cover_art": True,
@@ -110,12 +111,14 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
         },
         "qq": {
             "input_dir": str(DEFAULT_QQ_INPUT),
+            "output_dir": str(paths.output_dir / "qq"),
             "process_match": "qqmusic",
             "embed_cover_art": True,
             "format_rules": {"mflac": "flac", "mgg": "m4a", "mmp4": "m4a"},
         },
         "kuwo": {
             "input_dir": str(DEFAULT_KUWO_INPUT),
+            "output_dir": str(paths.output_dir / "kuwo"),
             "process_name": "kwmusic.exe",
             "exe_path": "",
             "signature_file": str(default_kuwo_signature_path(paths)),
@@ -123,6 +126,7 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
         },
         "kugou": {
             "input_dir": str(DEFAULT_KUGOU_INPUT),
+            "output_dir": str(paths.output_dir / "kugou"),
             "kgg_db_path": str(auto_find_kgg_db_path() or ""),
             "key_file": str(auto_find_kugou_key(paths) or (paths.assets_dir / "kugou_key.xz")),
             "target_format_kgma": "auto",
@@ -130,6 +134,7 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
         },
         "netease": {
             "input_dir": str(DEFAULT_NETEASE_INPUT),
+            "output_dir": str(paths.output_dir / "netease"),
             "target_format_ncm": "auto",
         },
     }
@@ -146,6 +151,17 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
     else:
         shared_embed_cover = bool(shared_embed_cover)
     config["shared"]["embed_cover_art"] = shared_embed_cover
+
+    shared_output_mode = str(config["shared"].get("output_mode", "shared") or "shared").lower()
+    if shared_output_mode not in {"shared", "per_platform"}:
+        shared_output_mode = "shared"
+    config["shared"]["output_mode"] = shared_output_mode
+
+    shared_output_dir = pathlib.Path(str(config["shared"].get("output_dir", paths.output_dir) or paths.output_dir))
+    for platform_id in ("qq", "kuwo", "kugou", "netease"):
+        platform_output_dir = str(config[platform_id].get("output_dir", "") or "").strip()
+        if not platform_output_dir:
+            config[platform_id]["output_dir"] = str(shared_output_dir / platform_id)
 
     shared_album_metadata = config["shared"].get("supplement_album_metadata", False)
     if isinstance(shared_album_metadata, str):
