@@ -25,7 +25,7 @@ except ImportError:
     from process_guard import ProcessGuard
 
 
-DEFAULT_EXE_PATH = r"M:\kuwo\kuwomusic\9.5.0.0_W1\bin\kwmusic.exe"
+DEFAULT_EXE_PATH = ""
 BASE_DIR = pathlib.Path(__file__).resolve().parent
 KUWO_ROOT = BASE_DIR.parent
 DEFAULT_OUTPUT_DIR = KUWO_ROOT / "_log" / "work"
@@ -191,7 +191,17 @@ def process_exists(device: frida.core.Device, pid: int) -> bool:
     for proc in device.enumerate_processes():
         if proc.pid == pid:
             return True
-    return False
+    try:
+        session = device.attach(pid)
+    except Exception:
+        return False
+    try:
+        return True
+    finally:
+        try:
+            session.detach()
+        except Exception:
+            pass
 
 
 def find_latest_process_by_name(device: frida.core.Device, process_name: str):
@@ -570,6 +580,13 @@ def next_report_stem(report_dir: pathlib.Path, base_name: str) -> str:
     return stem
 
 
+def resolve_export_base_dir(exe_path: pathlib.Path) -> pathlib.Path:
+    bin_dir = exe_path.parent / "bin"
+    if bin_dir.exists() and bin_dir.is_dir():
+        return bin_dir
+    return exe_path.parent
+
+
 def relocate_bin_outputs(
     new_files: list[dict[str, Any]],
     final_output_dir: pathlib.Path,
@@ -722,7 +739,8 @@ def _decrypt_impl(args: argparse.Namespace, verbose: bool = True) -> tuple[int, 
     output_dir = pathlib.Path(args.output_dir).resolve()
     report_dir = pathlib.Path(args.report_dir).resolve() if args.report_dir else output_dir
     final_output_dir = pathlib.Path(args.final_output_dir).resolve()
-    exe_path = pathlib.Path(args.exe_path)
+    exe_path_text = str(getattr(args, "exe_path", "") or "").strip()
+    exe_path = pathlib.Path(exe_path_text) if exe_path_text else pathlib.Path()
     candidate_report = pathlib.Path(args.candidate_report).resolve()
     symbol_map_report = pathlib.Path(args.symbol_map_report).resolve()
     signature_file = pathlib.Path(args.signature_file).resolve()
@@ -736,10 +754,11 @@ def _decrypt_impl(args: argparse.Namespace, verbose: bool = True) -> tuple[int, 
     run_id = started.strftime("%Y%m%d_%H%M%S_%f")
     safe_base = ascii_safe_token(base_name, fallback="kwm")
     raw_output = output_dir / f"{safe_base}_{run_id}.raw"
-    bin_dir = exe_path.parent.resolve()
+    bin_dir = exe_path.parent.resolve() if exe_path_text else output_dir
     run_start_ts = time.time()
     bin_snapshot_before = snapshot_audio_files(bin_dir)
     bin_snapshot_cursor = dict(bin_snapshot_before)
+    export_base_dir = resolve_export_base_dir(exe_path)
     report_stem = next_report_stem(report_dir, base_name)
     json_report_path = report_dir / f"{report_stem}.report.json"
     text_report_path = report_dir / f"{report_stem}.report.txt"
@@ -755,7 +774,7 @@ def _decrypt_impl(args: argparse.Namespace, verbose: bool = True) -> tuple[int, 
             "report_dir": str(report_dir),
             "final_output_dir": str(final_output_dir),
             "raw_output_path": str(raw_output),
-            "exe_path": str(exe_path),
+            "exe_path": exe_path_text,
             "candidate_report": str(candidate_report),
             "symbol_map_report": str(symbol_map_report),
             "signature_source": str(signature_file) if signature_file.exists() else None,
@@ -793,7 +812,9 @@ def _decrypt_impl(args: argparse.Namespace, verbose: bool = True) -> tuple[int, 
 
     if not input_path.exists() or input_path.suffix.lower() != ".kwm":
         return finish_early("invalid_input", "invalid input path or extension")
-    if not exe_path.exists():
+    if not exe_path_text:
+        return finish_early("exe_not_found", "exe path unavailable")
+    if not exe_path.exists() or not exe_path.is_file():
         return finish_early("exe_not_found", f"exe not found: {exe_path}")
     if not AGENT_PATH.exists():
         return finish_early("agent_not_found", f"agent not found: {AGENT_PATH}")
@@ -884,7 +905,7 @@ def _decrypt_impl(args: argparse.Namespace, verbose: bool = True) -> tuple[int, 
             if output_string and last_alt_path is None:
                 last_alt_path = resolve_output_path_hint(
                     output_string,
-                    [exe_path.parent, call_input_path.parent, input_path.parent, final_output_dir, output_dir],
+                    [export_base_dir, exe_path.parent, call_input_path.parent, input_path.parent, final_output_dir, output_dir],
                 )
                 if last_alt_path is not None and last_alt_path.exists():
                     try:
@@ -900,7 +921,7 @@ def _decrypt_impl(args: argparse.Namespace, verbose: bool = True) -> tuple[int, 
                         pass
 
             if before_audio is not None:
-                generated_audio = detect_new_audio_file(before_audio, exe_path.parent, min_size=4096)
+                generated_audio = detect_new_audio_file(before_audio, export_base_dir, min_size=4096)
                 if generated_audio is not None and generated_audio.exists():
                     if raw_output.exists():
                         raw_output.unlink()
@@ -1048,7 +1069,7 @@ def _decrypt_impl(args: argparse.Namespace, verbose: bool = True) -> tuple[int, 
                     recovered_attempt["variant_results"] = []
                     # Use a single stable layout variant by default to reduce repeated in-process calls.
                     recovered_variants = ["msvc24"]
-                    before_audio = snapshot_audio_files(exe_path.parent)
+                    before_audio = snapshot_audio_files(export_base_dir)
                     artifact_path: pathlib.Path | None = None
                     for candidate in recovered_candidates:
                         symbol_text = str(candidate.get("symbol") or resolved_symbol or "")
@@ -1155,7 +1176,7 @@ def _decrypt_impl(args: argparse.Namespace, verbose: bool = True) -> tuple[int, 
                 output_string = (recovered_attempt.get("output_string") or "").strip()
                 alt_output_path = resolve_output_path_hint(
                     output_string,
-                    [exe_path.parent, call_input_path.parent, input_path.parent, final_output_dir, output_dir],
+                    [export_base_dir, exe_path.parent, call_input_path.parent, input_path.parent, final_output_dir, output_dir],
                 )
                 if (
                     (not recovered_attempt["output_exists"])
@@ -1316,7 +1337,7 @@ def _decrypt_impl(args: argparse.Namespace, verbose: bool = True) -> tuple[int, 
                     break
                 continue
 
-            before_audio = snapshot_audio_files(exe_path.parent)
+            before_audio = snapshot_audio_files(export_base_dir)
             payload = {
                 "symbol": resolved_symbol or spec.symbol,
                 "abi": spec.abi,
@@ -1515,7 +1536,7 @@ def _decrypt_impl(args: argparse.Namespace, verbose: bool = True) -> tuple[int, 
         "report_dir": str(report_dir),
         "final_output_dir": str(final_output_dir),
         "raw_output_path": str(raw_output),
-        "exe_path": str(exe_path),
+        "exe_path": exe_path_text,
         "candidate_report": str(candidate_report),
         "symbol_map_report": str(symbol_map_report),
         "signature_source": str(signature_file) if recovered_candidates else None,
@@ -1606,3 +1627,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
