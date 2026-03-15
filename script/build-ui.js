@@ -1,13 +1,13 @@
 ﻿const fs = require("fs");
 const path = require("path");
 const {
+  commandSucceeds,
   ensureDir,
   ensureEmptyDir,
   ensureFile,
   parseArgs,
   resolvePythonExe,
   run,
-  capture,
 } = require("./build-lib");
 
 const args = parseArgs(process.argv.slice(2));
@@ -26,12 +26,7 @@ function hasModule(moduleName) {
     "import importlib.util, sys",
     `sys.exit(0 if importlib.util.find_spec(${JSON.stringify(moduleName)}) else 1)`,
   ].join("; ");
-  try {
-    capture(pythonExe, ["-c", script], { cwd: rootDir });
-    return true;
-  } catch {
-    return false;
-  }
+  return commandSucceeds(pythonExe, ["-c", script], { cwd: rootDir });
 }
 
 function ensureModule(moduleName, packageName = moduleName) {

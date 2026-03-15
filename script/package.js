@@ -5,6 +5,7 @@ const { spawnSync } = require("child_process");
 const {
   capture,
   cleanDir,
+  commandSucceeds,
   ensureDir,
   ensureEmptyDir,
   ensureFile,
@@ -35,21 +36,11 @@ function currentBranchName(repoDir) {
 }
 
 function localBranchExists(repoDir, branchName) {
-  try {
-    capture("git", ["show-ref", "--verify", `refs/heads/${branchName}`], { cwd: repoDir });
-    return true;
-  } catch {
-    return false;
-  }
+  return commandSucceeds("git", ["show-ref", "--verify", `refs/heads/${branchName}`], { cwd: repoDir });
 }
 
 function remoteBranchExists(repoDir, remoteRef) {
-  try {
-    capture("git", ["show-ref", "--verify", remoteRef], { cwd: repoDir });
-    return true;
-  } catch {
-    return false;
-  }
+  return commandSucceeds("git", ["show-ref", "--verify", remoteRef], { cwd: repoDir });
 }
 
 function ensureMainUiBranch() {
@@ -110,7 +101,20 @@ function resolveUiWorktree() {
   return { repoDir: tempUiWorktreeDir, ephemeral: true };
 }
 
+function hasNativeCompiler() {
+  return commandSucceeds("where.exe", ["cl.exe"], { cwd: rootDir })
+    || commandSucceeds("where.exe", ["gcc.exe"], { cwd: rootDir });
+}
+
 function runNativeBuild(repoDir) {
+  const bundledDll = path.join(repoDir, "assets", "kudog_native.dll");
+  if (!hasNativeCompiler()) {
+    if (fs.existsSync(bundledDll)) {
+      console.warn(`[package] No native compiler in PATH. Reusing existing DLL: ${bundledDll}`);
+      return;
+    }
+    fail("No native compiler in PATH and bundled kudog_native.dll is missing.");
+  }
   run(
     "powershell",
     ["-ExecutionPolicy", "Bypass", "-File", path.join(repoDir, "native", "build_native.ps1")],

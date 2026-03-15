@@ -1,6 +1,6 @@
-const path = require("path");
+﻿const path = require("path");
 const {
-  capture,
+  commandSucceeds,
   ensureDir,
   ensureEmptyDir,
   ensureFile,
@@ -35,12 +35,7 @@ function hasModule(moduleName) {
     "import importlib.util, sys",
     `sys.exit(0 if importlib.util.find_spec(${JSON.stringify(moduleName)}) else 1)`,
   ].join("; ");
-  try {
-    capture(pythonExe, ["-c", script], { cwd: rootDir });
-    return true;
-  } catch {
-    return false;
-  }
+  return commandSucceeds(pythonExe, ["-c", script], { cwd: rootDir });
 }
 
 function ensureModule(moduleName, packageName = moduleName) {

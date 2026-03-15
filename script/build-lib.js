@@ -1,4 +1,4 @@
-const fs = require("fs");
+﻿const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
@@ -37,6 +37,15 @@ function run(command, args, options = {}) {
   if (result.status !== 0) {
     fail(`Command failed: ${command} ${args.join(" ")}`);
   }
+}
+
+function commandSucceeds(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    encoding: "utf8",
+    shell: false,
+    ...options,
+  });
+  return result.status === 0;
 }
 
 function capture(command, args, options = {}) {
@@ -120,7 +129,14 @@ function locateIscc() {
     }
   }
   try {
-    const resolved = capture("where.exe", ["ISCC.exe"]);
+    const result = spawnSync("where.exe", ["ISCC.exe"], {
+      encoding: "utf8",
+      shell: false,
+    });
+    if (result.status !== 0) {
+      return null;
+    }
+    const resolved = (result.stdout || "").trim();
     const first = resolved.split(/\r?\n/).map((item) => item.trim()).find(Boolean);
     if (first && fs.existsSync(first) && fs.statSync(first).isFile()) {
       return first;
@@ -134,6 +150,7 @@ function locateIscc() {
 module.exports = {
   capture,
   cleanDir,
+  commandSucceeds,
   copyRecursive,
   ensureDir,
   ensureEmptyDir,
