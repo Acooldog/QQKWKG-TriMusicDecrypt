@@ -5,7 +5,8 @@ import shutil
 import time
 from dataclasses import dataclass, field
 
-from src.Infrastructure.process_utils import find_process_by_substring
+from src.Infrastructure.process_utils import ProcessMatch
+from src.Infrastructure.platforms.qq.process_locator import find_qqmusic_process
 from src.Infrastructure.transcoder import detect_audio_container
 
 
@@ -20,6 +21,7 @@ class QQPlatformAdapter:
     platform_id: str = "qq"
     display_name: str = "QQ音乐"
     _gateway: FridaDecryptGateway | None = field(default=None, init=False, repr=False)
+    _validated_process: ProcessMatch | None = field(default=None, init=False, repr=False)
 
     def _load_runtime(self):
         from src.Infrastructure.platforms.qq.runtime.frida_decrypt_gateway import FridaDecryptGateway
@@ -32,7 +34,8 @@ class QQPlatformAdapter:
 
     def validate_runtime(self, settings: dict) -> tuple[bool, str | None]:
         process_match = str(settings.get("process_match", "qqmusic") or "qqmusic")
-        info = find_process_by_substring(process_match)
+        info = find_qqmusic_process(process_match)
+        self._validated_process = info
         return (info is not None, None if info is not None else "QQ音乐未运行")
 
     def collect_files(self, input_path: pathlib.Path, recursive: bool) -> list[pathlib.Path]:
@@ -66,7 +69,9 @@ class QQPlatformAdapter:
         started = time.perf_counter()
         FridaDecryptGateway, pick_safe_tmp_dir = self._load_runtime()
         if self._gateway is None:
-            self._gateway = FridaDecryptGateway()
+            process_match = settings.get("process_match", "qqmusic")
+            preferred_pid = self._validated_process.pid if self._validated_process is not None else None
+            self._gateway = FridaDecryptGateway(process_match=process_match, preferred_pid=preferred_pid)
         source_suffix = input_path.suffix.lower().lstrip(".")
         default_ext = RAW_CONTAINER_RULES.get(source_suffix, "flac")
         safe_tmp_root = pathlib.Path(pick_safe_tmp_dir(str(work_dir))).resolve()

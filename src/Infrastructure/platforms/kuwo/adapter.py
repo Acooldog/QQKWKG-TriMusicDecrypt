@@ -27,11 +27,11 @@ class KuwoPlatformAdapter:
         process_name = str(settings.get("process_name", "kwmusic.exe") or "kwmusic.exe")
         info = find_process_by_name(process_name)
         if info is None:
-            return False, "???????"
+            return False, "酷我音乐未运行"
         try:
             self._resolve_exe_path(settings)
         except RuntimeError:
-            return False, "???????????????????????"
+            return False, "未找到可用的酷我程序路径"
         return True, None
 
     def _resolve_exe_path(self, settings: dict) -> str:

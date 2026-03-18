@@ -16,6 +16,7 @@ TaskStarter = Callable[[Callable[[], None]], None]
 StateSink = Callable[[list[dict[str, Any]]], None]
 LogSink = Callable[[str], None]
 CollisionResolver = Callable[[str, str, str | None], str]
+RUNTIME_RETRY_INTERVAL_SEC = 1.5
 
 
 @dataclass(slots=True)
@@ -109,7 +110,7 @@ class PlatformTaskQueue:
     ) -> tuple[bool, str | None]:
         with self._lock:
             current = self._tasks.get(platform_id)
-            if current and current.status in {"queued", "running", "waiting", "stopping"}:
+            if current and current.status in {"queued", "checking_runtime", "waiting_runtime", "running", "waiting", "stopping"}:
                 return False, f"{title} 任务已在运行或排队。"
 
             task = PlatformTaskState(
@@ -150,12 +151,12 @@ class PlatformTaskQueue:
                 self._reindex_queue_locked()
                 self._push_state_locked()
                 return True, None
-            if task.status in {"running", "waiting"}:
+            if task.status in {"checking_runtime", "waiting_runtime", "running", "waiting"}:
                 task.stop_requested = True
                 task.status = "stopping"
-                task.message = "停止中，当前批次结束后退出"
+                task.message = "停止中，正在结束当前检测或批次"
                 task.last_updated = time.time()
-                self._emit_log_locked(f"[stop] {task.title} stopping after current batch")
+                self._emit_log_locked(f"[stop] {task.title} stopping after current check/batch")
                 self._push_state_locked()
                 return True, None
             if task.status in {"stopping", "stopped"}:
@@ -179,8 +180,8 @@ class PlatformTaskQueue:
                 task.queue_position = position
 
     def _start_locked(self, task: PlatformTaskState) -> None:
-        task.status = "running"
-        task.message = "任务已启动"
+        task.status = "checking_runtime"
+        task.message = "任务已启动，正在准备运行环境"
         task.queue_position = 0
         task.stop_requested = False
         task.last_updated = time.time()
@@ -213,9 +214,107 @@ class PlatformTaskQueue:
             pieces.append(f"跳过 {task.skipped_count}")
         return "success", "已完成，" + "，".join(pieces)
 
+    def _should_wait_for_runtime(self, platform_id: str, reason: str | None) -> bool:
+        if platform_id == "qq":
+            return True
+        text = str(reason or "").strip()
+        if platform_id == "kuwo":
+            return "未运行" in text
+        return False
+
+    def _wait_for_runtime(self, platform_id: str, adapter) -> tuple[str, str | None]:
+        with self._lock:
+            task = self._tasks.get(platform_id)
+            if task is None:
+                return "stopped", None
+            title = task.title
+
+        if not adapter.requires_running_process():
+            ok, reason = adapter.validate_runtime(dict(task.settings))
+            return ("ready", None) if ok else ("failed", reason or "当前平台运行环境不可用。")
+
+        last_reason = ""
+        wait_logged = False
+        while True:
+            if self._is_stop_requested(platform_id):
+                return "stopped", None
+
+            with self._lock:
+                task = self._tasks.get(platform_id)
+                if task is None:
+                    return "stopped", None
+                settings = dict(task.settings)
+                task.status = "checking_runtime"
+                task.message = "正在检测运行环境"
+                task.current_file = ""
+                task.last_updated = time.time()
+                self._push_state_locked()
+
+            ok, reason = adapter.validate_runtime(settings)
+            if ok:
+                with self._lock:
+                    task = self._tasks.get(platform_id)
+                    if task is None:
+                        return "stopped", None
+                    task.status = "running"
+                    task.message = "已检测到运行环境，开始处理"
+                    task.last_updated = time.time()
+                    if wait_logged:
+                        self._emit_log_locked(f"[runtime] {title} 已检测到运行环境，继续执行")
+                    self._push_state_locked()
+                return "ready", None
+
+            reason_text = str(reason or "未检测到对应进程。").strip() or "未检测到对应进程。"
+            if not self._should_wait_for_runtime(platform_id, reason_text):
+                return "failed", reason_text
+
+            with self._lock:
+                task = self._tasks.get(platform_id)
+                if task is None:
+                    return "stopped", None
+                task.status = "waiting_runtime"
+                task.message = f"{reason_text}，等待启动后自动重试"
+                task.current_file = ""
+                task.last_updated = time.time()
+                if reason_text != last_reason or not wait_logged:
+                    self._emit_log_locked(f"[runtime] {title} {reason_text}，{RUNTIME_RETRY_INTERVAL_SEC:.1f} 秒后重试")
+                self._push_state_locked()
+
+            last_reason = reason_text
+            wait_logged = True
+            waited = 0.0
+            while waited < RUNTIME_RETRY_INTERVAL_SEC:
+                if self._is_stop_requested(platform_id):
+                    return "stopped", None
+                time.sleep(0.1)
+                waited += 0.1
+
     def _run_task(self, platform_id: str) -> None:
         adapter = build_platform_adapter(platform_id)
         while True:
+            runtime_status, runtime_reason = self._wait_for_runtime(platform_id, adapter)
+            if runtime_status == "stopped":
+                with self._lock:
+                    task = self._tasks[platform_id]
+                    task.status = "stopped"
+                    task.message = "已停止"
+                    task.last_updated = time.time()
+                    self._running.discard(platform_id)
+                    self._emit_log_locked(f"[done] {task.title} stopped")
+                    self._drain_locked()
+                return
+            if runtime_status == "failed":
+                with self._lock:
+                    task = self._tasks[platform_id]
+                    task.status = "failed"
+                    task.message = str(runtime_reason or "运行环境不可用")
+                    task.result_code = 2
+                    task.last_updated = time.time()
+                    self._running.discard(platform_id)
+                    self._emit_log_locked(f"[failed] {task.title}: {task.message}")
+                    self._drain_locked()
+                return
+
             task = self._tasks[platform_id]
             batch_config = BatchRunConfig(
                 platform_id=platform_id,
