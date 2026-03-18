@@ -11,6 +11,8 @@ import logging
 import time
 import frida
 
+from src.Infrastructure.platforms.qq.process_locator import find_qqmusic_process
+
 
 logger = logging.getLogger("qqmusic_decrypt.manager")
 
@@ -345,20 +347,16 @@ def Decryptor_main(input_dir="", output_dir="", del_original=False):
 
     # 查找QQ音乐进程
     try:
-        processes = device.enumerate_processes()
-        qq_music_process = next(
-            (p for p in processes if "qqmusic" in p.name.lower()),
-            None
-        )
-        if not qq_music_process:
+        process_info = find_qqmusic_process("qqmusic")
+        if process_info is None:
             raise RuntimeError("请先启动QQ音乐")
 
-        logger.info("找到QQ音乐进程: PID=%s", qq_music_process.pid)
+        logger.info("找到QQ音乐进程: PID=%s NAME=%s", process_info.pid, process_info.name)
     except Exception as e:
         raise RuntimeError(f"查找QQ音乐进程失败: {e}")
 
     # 附加到QQ音乐进程
-    session = device.attach(qq_music_process.pid)
+    session = device.attach(process_info.pid)
 
     # 初始化解密器（会自动查找并加载所需的函数）
     try:
