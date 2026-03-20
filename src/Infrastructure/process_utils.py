@@ -1,8 +1,7 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import subprocess
-from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -15,7 +14,7 @@ class ProcessMatch:
 
 
 def _run_powershell_json(script: str) -> list[dict[str, Any]]:
-    command = ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script]
+    command = ["powershell.exe", "-NoProfile", "-Command", script]
     completed = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if completed.returncode != 0:
         return []
@@ -33,31 +32,21 @@ def _run_powershell_json(script: str) -> list[dict[str, Any]]:
     return []
 
 
-def _normalize_name(value: str) -> str:
-    normalized = (value or "").strip().lower()
-    if normalized.endswith(".exe"):
-        normalized = normalized[:-4]
-    return normalized
-
-
-def _single_quoted(value: str) -> str:
-    return value.replace("'", "''")
-
-
-def _build_cim_query_script(query_script: str) -> str:
-    return (
+def _query_processes(filter_script: str) -> list[ProcessMatch]:
+    script = (
         "$ErrorActionPreference='SilentlyContinue'; "
-        f"$procs = @({query_script}); "
-        "@($procs | Sort-Object ProcessId | ForEach-Object { "
+        f"$procs = {filter_script}; "
+        "$rows=@(); "
+        "foreach($p in $procs){ "
         "  $path=''; "
-        "  try { if($_.ExecutablePath){ $path = [string]$_.ExecutablePath } } catch {} "
-        "  [pscustomobject]@{pid=$_.ProcessId;name=$_.Name;exe_path=$path} "
-        "}) | ConvertTo-Json -Compress"
+        "  try { $path = $p.Path } catch {} "
+        "  if(-not $path){ try { $path = $p.MainModule.FileName } catch {} } "
+        "  if(-not $path){ try { $cim = Get-CimInstance Win32_Process -Filter (\"ProcessId = \" + $p.Id); if($cim){ $path = $cim.ExecutablePath } } catch {} } "
+        "  $rows += [pscustomobject]@{pid=$p.Id;name=$p.ProcessName;exe_path=$path} "
+        "} "
+        "$rows | Sort-Object pid | ConvertTo-Json -Compress"
     )
-
-
-def _query_cim_processes(query_script: str) -> list[ProcessMatch]:
-    rows = _run_powershell_json(_build_cim_query_script(query_script))
+    rows = _run_powershell_json(script)
     matches: list[ProcessMatch] = []
     for row in rows:
         pid = int(row.get("pid", 0) or 0)
@@ -70,48 +59,26 @@ def _query_cim_processes(query_script: str) -> list[ProcessMatch]:
     return matches
 
 
-def _query_processes_by_substrings(fragments: Iterable[str]) -> list[ProcessMatch]:
-    normalized: list[str] = []
-    seen: set[str] = set()
-    for fragment in fragments:
-        value = _normalize_name(str(fragment or ""))
-        if not value or value in seen:
-            continue
-        seen.add(value)
-        normalized.append(value)
-    if not normalized:
-        return []
-    predicates: list[str] = []
-    for fragment in normalized:
-        escaped = _single_quoted(fragment)
-        predicates.append(f"$name.Contains('{escaped}')")
-        predicates.append(f"$path.Contains('{escaped}')")
-    query_script = (
-        "Get-CimInstance Win32_Process | Where-Object { "
-        "  $name = ([string]$_.Name).ToLowerInvariant(); "
-        "  $path = ([string]$_.ExecutablePath).ToLowerInvariant(); "
-        f"  {' -or '.join(predicates)} "
-        "}"
-    )
-    return _query_cim_processes(query_script)
-
-
-def find_process_by_substrings(fragments: Iterable[str]) -> ProcessMatch | None:
-    results = _query_processes_by_substrings(fragments)
-    return results[-1] if results else None
-
-
 def find_process_by_substring(fragment: str) -> ProcessMatch | None:
-    return find_process_by_substrings([fragment])
+    value = (fragment or "").strip().lower()
+    if not value:
+        return None
+    for item in reversed(_query_processes("Get-Process")):
+        if value in item.name.lower():
+            return item
+    return None
 
 
 def find_process_by_name(process_name: str) -> ProcessMatch | None:
-    target = _normalize_name(process_name)
+    target = (process_name or "").strip().lower()
     if not target:
         return None
-    target = f"{target}.exe"
-    escaped_target = _single_quoted(target)
-    results = _query_cim_processes(f"Get-CimInstance Win32_Process -Filter \"Name = '{escaped_target}'\"")
+    if target.endswith(".exe"):
+        query_name = target[:-4]
+    else:
+        query_name = target
+        target = f"{target}.exe"
+    results = _query_processes(f"Get-Process -Name '{query_name}'")
     for item in reversed(results):
         if item.name.lower() == target:
             return item
