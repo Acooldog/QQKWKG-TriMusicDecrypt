@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import pathlib
 import sys
@@ -28,6 +29,13 @@ from src.Infrastructure.runtime_paths import RuntimePaths
 
 
 PLATFORM_LABELS = {"qq": "QQ音乐", "kuwo": "酷我音乐", "kugou": "酷狗音乐", "netease": "网易云音乐"}
+
+
+def is_running_as_admin() -> bool:
+    try:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
 
 
 def pause_exit(code: int = 0, message: str | None = None) -> int:
@@ -112,6 +120,16 @@ def _shared_recursive(config: dict) -> bool:
     return bool(config.get("shared", {}).get("recursive", True))
 
 
+def _require_admin(*, interactive: bool) -> int | None:
+    if is_running_as_admin():
+        return None
+    message = "请使用管理员身份启动 A_QKKd。当前不是管理员启动，已禁止继续使用。"
+    if interactive:
+        return pause_exit(2, message)
+    print(message, file=sys.stderr)
+    return 2
+
+
 def _validate_kugou_runtime(paths: RuntimePaths, config: dict, input_path: pathlib.Path, recursive: bool, interactive: bool) -> tuple[bool, str | None, dict]:
     adapter = build_platform_adapter("kugou")
     settings = dict(config["kugou"])
@@ -139,6 +157,7 @@ def _run_platform(platform_id: str, config: dict, *, input_override: str | None 
     adapter = build_platform_adapter(platform_id)
     shared = dict(config["shared"])
     settings = dict(config[platform_id])
+    settings["transcode_enabled"] = bool(shared.get("transcode_enabled", True))
     settings["embed_cover_art"] = bool(shared.get("embed_cover_art", True))
     settings["supplement_album_metadata"] = bool(shared.get("supplement_album_metadata", False))
     input_path = pathlib.Path(input_override or settings.get("input_dir") or "")
@@ -196,6 +215,10 @@ def run_interactive() -> int:
     input_dir = pathlib.Path(prompt_with_default("输入文件或目录", str(settings.get("input_dir", ""))))
     output_dir = pathlib.Path(prompt_with_default("共享输出目录", str(shared.get("output_dir", paths.output_dir))))
     recursive = prompt_bool("递归扫描子目录", bool(shared.get("recursive", True)))
+    shared["transcode_enabled"] = prompt_bool(
+        "是否转码（关闭后直接输出解密后的原始音频格式）",
+        bool(shared.get("transcode_enabled", True)),
+    )
     shared["embed_cover_art"] = prompt_bool(
         "是否自动补封面（所有平台共用，可能会导致转换明显变慢）",
         bool(shared.get("embed_cover_art", True)),
@@ -205,7 +228,9 @@ def run_interactive() -> int:
         bool(shared.get("supplement_album_metadata", False)),
     )
 
-    if platform_id == "qq":
+    if not bool(shared.get("transcode_enabled", True)):
+        pass
+    elif platform_id == "qq":
         rules = dict(settings.get("format_rules", {}))
         rules["mflac"] = prompt_choice("mflac 输出格式 flac/m4a/mp3/wav", str(rules.get("mflac", "flac")), supported_transcode_formats())
         rules["mgg"] = prompt_choice("mgg 输出格式 flac/m4a/mp3/wav", str(rules.get("mgg", "m4a")), supported_transcode_formats())
@@ -266,28 +291,42 @@ def build_parser(paths: RuntimePaths) -> argparse.ArgumentParser:
         cover_group = dec.add_mutually_exclusive_group()
         cover_group.add_argument("--embed-cover", dest="embed_cover_art", action="store_true", help="自动补封面（所有平台共用），可能会导致转换变慢")
         cover_group.add_argument("--no-embed-cover", dest="embed_cover_art", action="store_false", help="不自动补封面")
+        transcode_group = dec.add_mutually_exclusive_group()
+        transcode_group.add_argument("--transcode", dest="transcode_enabled", action="store_true", help="转码为目标格式")
+        transcode_group.add_argument("--no-transcode", dest="transcode_enabled", action="store_false", help="不转码，直接输出解密后的原始音频格式")
         album_group = dec.add_mutually_exclusive_group()
         album_group.add_argument("--supplement-album", dest="supplement_album_metadata", action="store_true", help="补充专辑信息（m4a/wav）")
         album_group.add_argument("--no-supplement-album", dest="supplement_album_metadata", action="store_false", help="不补充专辑信息")
-        dec.set_defaults(embed_cover_art=None, supplement_album_metadata=None)
+        dec.set_defaults(embed_cover_art=None, supplement_album_metadata=None, transcode_enabled=None)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     if argv is None and len(sys.argv) == 1:
         # Keep no-arg interactive entry explicit for packaged use.
+        admin_code = _require_admin(interactive=True)
+        if admin_code is not None:
+            return admin_code
         return run_interactive()
     paths = RuntimePaths.discover()
     parser = build_parser(paths)
     args = parser.parse_args(argv)
     if args.platform is None:
+        admin_code = _require_admin(interactive=True)
+        if admin_code is not None:
+            return admin_code
         return run_interactive()
     if args.command != "decrypt":
         parser.print_help()
         return 1
+    admin_code = _require_admin(interactive=False)
+    if admin_code is not None:
+        return admin_code
     _, config = load_config(paths)
     platform_id = args.platform
     settings = dict(config[platform_id])
+    if args.transcode_enabled is not None:
+        config["shared"]["transcode_enabled"] = bool(args.transcode_enabled)
     if args.embed_cover_art is not None:
         config["shared"]["embed_cover_art"] = bool(args.embed_cover_art)
     if args.supplement_album_metadata is not None:

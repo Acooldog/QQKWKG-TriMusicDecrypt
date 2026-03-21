@@ -106,6 +106,7 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
             "output_mode": "shared",
             "cli_collision_policy": "suffix",
             "recursive": True,
+            "transcode_enabled": True,
             "embed_cover_art": True,
             "supplement_album_metadata": False,
         },
@@ -169,6 +170,13 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
     else:
         shared_album_metadata = bool(shared_album_metadata)
     config["shared"]["supplement_album_metadata"] = shared_album_metadata
+
+    shared_transcode_enabled = config["shared"].get("transcode_enabled", True)
+    if isinstance(shared_transcode_enabled, str):
+        shared_transcode_enabled = shared_transcode_enabled.strip().lower() in {"1", "true", "yes", "y", "on"}
+    else:
+        shared_transcode_enabled = bool(shared_transcode_enabled)
+    config["shared"]["transcode_enabled"] = shared_transcode_enabled
 
     format_rules = config["qq"].get("format_rules")
     if not isinstance(format_rules, dict):
