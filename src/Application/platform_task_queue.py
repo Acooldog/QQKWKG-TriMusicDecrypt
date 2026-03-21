@@ -18,6 +18,35 @@ LogSink = Callable[[str], None]
 CollisionResolver = Callable[[str, str, str | None], str]
 
 
+def _friendly_failure_reason(reason: str) -> str:
+    text = str(reason or "").strip()
+    if not text:
+        return "未知错误"
+    mapping = {
+        "qq_decrypt_failed": "QQ 旧链解密失败",
+        "unrecognized_audio_container": "输出不是可识别的音频容器",
+    }
+    parts: list[str] = []
+    for raw_segment in text.split(";"):
+        segment = raw_segment.strip()
+        if not segment:
+            continue
+        matched = False
+        for code, friendly in mapping.items():
+            if segment.startswith(code):
+                tail = segment.split(":", 1)[1].strip() if ":" in segment else ""
+                parts.append(tail or friendly)
+                matched = True
+                break
+        if not matched:
+            parts.append(segment)
+    deduped: list[str] = []
+    for item in parts:
+        if item not in deduped:
+            deduped.append(item)
+    return "；".join(deduped) if deduped else text
+
+
 @dataclass(slots=True)
 class PlatformTaskState:
     platform_id: str
@@ -351,6 +380,11 @@ class PlatformTaskQueue:
                 task.current_index = int(payload.get("index", 0) or 0)
                 task.current_total = int(payload.get("total", task.current_total) or task.current_total)
                 task.message = pathlib.Path(task.current_file).name if task.current_file else "处理中"
+            elif event_name == "variant_started":
+                task.current_file = str(payload.get("input_path", "") or task.current_file)
+                task.current_index = int(payload.get("index", task.current_index) or task.current_index)
+                task.current_total = int(payload.get("total", task.current_total) or task.current_total)
+                task.message = str(payload.get("message", "") or "正在转换 QQ 加密变体，准备旧链兼容输入")
             elif event_name == "cover_started":
                 task.current_file = str(payload.get("output_path", "") or payload.get("input_path", "") or task.current_file)
                 task.current_index = int(payload.get("index", task.current_index) or task.current_index)
@@ -380,7 +414,7 @@ class PlatformTaskQueue:
                 elif result == "failed":
                     task.failed_count += 1
                     task.last_failed_file = pathlib.Path(str(payload.get("input_path", "") or task.current_file)).name or "未知文件"
-                    task.last_failed_reason = str(payload.get("reason", "") or "未知错误")
+                    task.last_failed_reason = _friendly_failure_reason(str(payload.get("reason", "") or "未知错误"))
                     task.message = f"最近失败：{task.last_failed_file}"
                 task.last_timing = dict(payload.get("timing", {}) or {})
             elif event_name == "batch_finished":
