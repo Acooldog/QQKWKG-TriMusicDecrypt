@@ -476,13 +476,23 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
                 continue
         file_timing["dedupe_sec"] = round(time.perf_counter() - dedupe_started, 6)
 
-        qq_export_retry_attempted = False
         while True:
             working_path: pathlib.Path | None = None
             try:
                 decrypt_settings = dict(config.settings)
-                if qq_export_retry_attempted:
-                    decrypt_settings["qq_prefer_export_fallback"] = True
+                if config.platform_id == "qq":
+                    decrypt_settings["qq_variant_notifier"] = lambda payload, *, _index=index, _total=len(files), _path=file_path: _emit_event(
+                        config,
+                        "variant_started",
+                        {
+                            "platform_id": config.platform_id,
+                            "index": _index,
+                            "total": _total,
+                            "input_path": str(payload.get("input_path") or _path),
+                            "variant_mode": str(payload.get("variant_mode") or "ascii_source_stage"),
+                            "message": str(payload.get("message") or "正在转换 QQ 加密变体，准备旧链兼容输入"),
+                        },
+                    )
                 decrypt_started = time.perf_counter()
                 detail = adapter.decrypt_one(file_path, work_dir, decrypt_settings, log_dir=log_dir)
                 file_timing["decrypt_sec"] = round(time.perf_counter() - decrypt_started, 6)
@@ -627,16 +637,6 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
                 success_count += 1
                 break
             except Exception as exc:
-                if config.platform_id == "qq" and not qq_export_retry_attempted:
-                    qq_export_retry_attempted = True
-                    logger.warning(
-                        "qq_fallback_retry_from_source: %s original_reason=%s source=%s",
-                        file_path.name,
-                        exc,
-                        file_path,
-                    )
-                    _cleanup_working_path(working_path)
-                    continue
                 file_timing["total_sec"] = round(time.perf_counter() - file_started, 6)
                 _accumulate(timing_batch_total, file_timing)
                 logger.warning("failed: %s reason=%s", file_path.name, exc)

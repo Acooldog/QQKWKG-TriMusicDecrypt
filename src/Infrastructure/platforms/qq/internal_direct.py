@@ -36,7 +36,7 @@ class QQInternalDirectDecryptService:
     ACTIVE_ARG0_HEX = "582f83260300000000000000a40f8979a40f897901000000020000000500000014d46600e81c7723020000000000000001000000e27c3700e3000000ffffffff"
     ACTIVE_ARG1_HEX = "802c8326e0a9811d00000000a40f897901000000c09cf80915d93301cada330172d93301000000002067a61400000000a40f8979c88095c2262700907818e67b"
 
-    def __init__(self, *, timeout_seconds: float = 15.0):
+    def __init__(self, *, timeout_seconds: float = 6.0):
         self.timeout_seconds = timeout_seconds
 
     def stage_internal_flac(self, source_file_path: str, stage_path: str, *, wait_seconds: float | None = None) -> QQInternalDirectResult:
@@ -54,17 +54,24 @@ class QQInternalDirectDecryptService:
             except OSError:
                 pass
 
-        artist_hint, title_hint = self._derive_title_hints(sample)
-        passive = self._stage_live_redirect(sample=sample, target=target, timeout=timeout, artist_hint=artist_hint, title_hint=title_hint, pid=pid)
-        if passive.status == "staged":
-            return passive
+        source_cache_path = self._find_source_cache_path(sample)
+        if source_cache_path is not None:
+            return self._stage_active_direct(
+                sample=sample,
+                target=target,
+                pid=pid,
+                source_cache_path=source_cache_path,
+            )
 
-        active = self._stage_active_direct(sample=sample, target=target, pid=pid)
-        if active.status == "staged":
-            return active
-        if passive.status in {"attach_failed", "hook_error"}:
-            return passive
-        return active if active.status != "active_context_missing" else passive
+        artist_hint, title_hint = self._derive_title_hints(sample)
+        return self._stage_live_redirect(
+            sample=sample,
+            target=target,
+            timeout=timeout,
+            artist_hint=artist_hint,
+            title_hint=title_hint,
+            pid=pid,
+        )
 
     @staticmethod
     def _as_text(value: object) -> str | None:
@@ -190,10 +197,7 @@ class QQInternalDirectDecryptService:
 
         return QQInternalDirectResult(status="timeout", message="QQ internal decrypt did not trigger within timeout")
 
-    def _stage_active_direct(self, *, sample: Path, target: Path, pid: int) -> QQInternalDirectResult:
-        source_cache_path = self._find_source_cache_path(sample)
-        if source_cache_path is None:
-            return QQInternalDirectResult(status="active_context_missing", message="QQ internal direct source cache was not found")
+    def _stage_active_direct(self, *, sample: Path, target: Path, pid: int, source_cache_path: Path) -> QQInternalDirectResult:
 
         target.parent.mkdir(parents=True, exist_ok=True)
         temp_ascii_dir = target.parent / "_qq_internal_direct"
@@ -208,7 +212,8 @@ class QQInternalDirectDecryptService:
             except OSError:
                 pass
         try:
-            shutil.copyfile(source_cache_path, active_source)
+            if source_cache_path.resolve() != active_source.resolve():
+                shutil.copyfile(source_cache_path, active_source)
         except OSError as exc:
             return QQInternalDirectResult(status="output_missing", source_cache_path=str(source_cache_path), message=f"failed to stage QQ cache source: {exc}")
 
@@ -237,6 +242,14 @@ class QQInternalDirectDecryptService:
         if helper["status"] == "invoke_failed":
             return QQInternalDirectResult(status="invoke_failed", source_cache_path=str(source_cache_path), cover_path=str(active_cover), message=str(helper.get("message") or "QQ direct decrypt returned 0"))
         if helper["status"] == "staged" and active_output.exists() and active_output.stat().st_size > 1024:
+            detected_container = self._detect_container_fast(active_output)
+            if detected_container == "bin":
+                return QQInternalDirectResult(
+                    status="output_missing",
+                    source_cache_path=str(source_cache_path),
+                    cover_path=str(active_cover),
+                    message="QQ direct decrypt produced an unrecognized container",
+                )
             try:
                 shutil.copyfile(active_output, target)
             except OSError as exc:
@@ -255,6 +268,43 @@ class QQInternalDirectDecryptService:
                 message="triggered QQ internal decrypt_cache_file directly",
             )
         return QQInternalDirectResult(status="output_missing", source_cache_path=str(source_cache_path), cover_path=str(active_cover), message="QQ direct decrypt call did not produce output")
+
+    def _stage_active_direct_from_source_alias(self, *, sample: Path, target: Path, pid: int) -> QQInternalDirectResult:
+        temp_ascii_dir = target.parent / "_qq_internal_direct"
+        temp_ascii_dir.mkdir(parents=True, exist_ok=True)
+        alias_source = temp_ascii_dir / "source.mflac"
+        try:
+            shutil.copyfile(sample, alias_source)
+        except OSError as exc:
+            return QQInternalDirectResult(status="output_missing", source_cache_path=str(sample), message=f"failed to stage source alias: {exc}")
+        result = self._stage_active_direct(
+            sample=sample,
+            target=target,
+            pid=pid,
+            source_cache_path=alias_source,
+        )
+        if result.status == "staged":
+            result.source_cache_path = str(sample)
+            result.message = "triggered QQ internal decrypt_cache_file via staged source alias"
+        return result
+
+    @staticmethod
+    def _detect_container_fast(path: Path) -> str:
+        try:
+            head = path.read_bytes()[:16]
+        except OSError:
+            return "bin"
+        if head.startswith(b"fLaC"):
+            return "flac"
+        if head.startswith(b"OggS"):
+            return "ogg"
+        if len(head) >= 12 and head[4:8] == b"ftyp":
+            return "m4a"
+        if head.startswith(b"RIFF") and len(head) >= 12 and head[8:12] == b"WAVE":
+            return "wav"
+        if head.startswith(b"ID3") or (len(head) >= 2 and head[0] == 0xFF and (head[1] & 0xE0) == 0xE0):
+            return "mp3"
+        return "bin"
 
     @staticmethod
     def _find_qqmusic_pid() -> int | None:
@@ -288,17 +338,29 @@ class QQInternalDirectDecryptService:
             return None
         artist_hint, title_hint = cls._derive_title_hints(sample)
         target_stem = cls._normalize_stem(f"{artist_hint} {title_hint}".strip())
-        candidates = []
+        artist_norm = cls._normalize_stem(artist_hint)
+        title_norm = cls._normalize_stem(title_hint)
+        exact_candidates: list[Path] = []
+        fuzzy_candidates: list[Path] = []
         for path in cls.CACHE_DIR.iterdir():
             if not path.is_file():
                 continue
             norm = cls._normalize_stem(path.stem)
-            if target_stem and (target_stem == norm or title_hint.lower() in norm):
-                candidates.append(path)
-        if candidates:
-            return candidates[0]
-        files = [p for p in cls.CACHE_DIR.iterdir() if p.is_file()]
-        return files[0] if len(files) == 1 else None
+            if not norm:
+                continue
+            if target_stem and target_stem == norm:
+                exact_candidates.append(path)
+                continue
+            if artist_norm and title_norm and artist_norm in norm and title_norm in norm:
+                fuzzy_candidates.append(path)
+                continue
+            if not artist_norm and title_norm and norm == title_norm:
+                fuzzy_candidates.append(path)
+        if exact_candidates:
+            return exact_candidates[0]
+        if fuzzy_candidates:
+            return fuzzy_candidates[0]
+        return None
 
     @classmethod
     def _pick_cover_path(cls) -> Path:
@@ -339,17 +401,17 @@ class QQInternalDirectDecryptService:
                     "--cover-path",
                     str(cover_path),
                     "--settle-seconds",
-                    "10",
-                    "--stable-rounds",
                     "4",
+                    "--stable-rounds",
+                    "2",
                     "--grace-seconds",
-                    "8",
+                    "2",
                     "--json-summary",
                 ],
                 cwd=repo_root,
                 capture_output=True,
                 text=True,
-                timeout=45,
+                timeout=30,
             )
         except subprocess.TimeoutExpired:
             return {"status": "hook_error", "message": "QQ internal direct helper timed out"}

@@ -91,8 +91,10 @@ function hexToBytes(hex) {{
   return out;
 }}
 
-hookCreateFile('KernelBase.dll');
-hookCreateFile('KERNEL32.DLL');
+if (config.trace_files) {{
+  hookCreateFile('KernelBase.dll');
+  hookCreateFile('KERNEL32.DLL');
+}}
 
 const mod = Process.findModuleByName('QQMusic.dll');
 if (!mod) {{
@@ -150,6 +152,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--poll-interval", type=float, default=0.5)
     parser.add_argument("--stable-rounds", type=int, default=4)
     parser.add_argument("--grace-seconds", type=float, default=6.0)
+    parser.add_argument("--trace-files", action="store_true")
     parser.add_argument("--json-summary", action="store_true")
     parser.add_argument(
         "--log-dir",
@@ -191,6 +194,7 @@ def main() -> int:
         "source_cache_path": args.source_cache_path,
         "output_path": str(output_path),
         "cover_path": args.cover_path,
+        "trace_files": bool(args.trace_files),
     }
 
     session = None
