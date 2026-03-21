@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import ctypes
 import pathlib
 import sys
 import threading
@@ -66,6 +67,13 @@ DANGER = "#EF4444"
 FORMATS = ["auto"] + [item for item in supported_transcode_formats()
                       if item != "auto"]
 QQ_RULE_FORMATS = ["flac", "m4a", "mp3", "wav"]
+
+
+def is_running_as_admin() -> bool:
+    try:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
 
 
 class GuardedComboBox(QComboBox):
@@ -300,6 +308,79 @@ class StartupNoticeDialog(QDialog):
         super().mouseReleaseEvent(event)
 
 
+class AdminRequiredDialog(QDialog):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._drag_origin: QPoint | None = None
+        self.setWindowTitle("需要管理员权限")
+        self.setModal(True)
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setFixedSize(540, 300)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(10, 10, 10, 10)
+        outer.setSpacing(0)
+
+        shell = QFrame()
+        shell.setObjectName("Shell")
+        shell_layout = QVBoxLayout(shell)
+        shell_layout.setContentsMargins(0, 0, 0, 0)
+        shell_layout.setSpacing(0)
+        outer.addWidget(shell)
+
+        title_bar = TitleBar(self, "需要管理员权限")
+        title_bar.min_button.hide()
+        shell_layout.addWidget(title_bar)
+
+        body = QFrame()
+        body.setObjectName("NoticeCard")
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(22, 20, 22, 20)
+        body_layout.setSpacing(12)
+
+        title = QLabel("请使用管理员身份启动本软件")
+        title.setObjectName("CardTitle")
+        message = QLabel(
+            "当前不是管理员启动。\n\n"
+            "为了稳定访问运行进程、数据库、签名文件以及运行时目录，A_QKKd 现在要求管理员权限运行。\n"
+            "请关闭本窗口后，右键程序并选择“以管理员身份运行”。"
+        )
+        message.setWordWrap(True)
+        message.setObjectName("MutedText")
+
+        confirm = QPushButton("退出")
+        confirm.setObjectName("DangerButton")
+        confirm.clicked.connect(self.accept)
+
+        body_layout.addWidget(title)
+        body_layout.addWidget(message)
+        body_layout.addStretch(1)
+        body_layout.addWidget(confirm)
+        shell_layout.addWidget(body)
+
+        self.setStyleSheet(build_app_stylesheet())
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_origin = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._drag_origin is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_origin)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        self._drag_origin = None
+        super().mouseReleaseEvent(event)
+
+
 class PathField(QFrame):
     def __init__(self, label: str, *, directory: bool) -> None:
         super().__init__()
@@ -377,7 +458,18 @@ class PlatformCard(QFrame):
         self.progress_label = QLabel("进度：0 / 0")
         self.file_label = QLabel("当前文件：无")
         self.timing_label = QLabel("热点：无")
-        for widget in (self.status_label, self.message_label, self.count_label, self.progress_label, self.file_label, self.timing_label):
+        self.failed_file_label = QLabel("最近失败：无")
+        self.failed_reason_label = QLabel("失败原因：无")
+        for widget in (
+            self.status_label,
+            self.message_label,
+            self.count_label,
+            self.progress_label,
+            self.file_label,
+            self.timing_label,
+            self.failed_file_label,
+            self.failed_reason_label,
+        ):
             widget.setWordWrap(True)
             status_layout.addWidget(widget)
         root.addWidget(status_box)
@@ -474,6 +566,10 @@ class PlatformCard(QFrame):
     def extra_field(self, key: str) -> PathField:
         return self._extra_fields[key]
 
+    def set_formats_enabled(self, enabled: bool) -> None:
+        for combo in self._format_widgets.values():
+            combo.setEnabled(enabled)
+
     def apply_state(self, payload: dict[str, Any]) -> None:
         status = str(payload.get("status", "idle") or "idle")
         mapping = {
@@ -505,6 +601,10 @@ class PlatformCard(QFrame):
         hotspot = payload.get("timing_hotspot") or {}
         hotspot_text = f"{hotspot.get('stage', '无')} / {hotspot.get('ratio', 0)}" if hotspot else "无"
         self.timing_label.setText(f"热点：{hotspot_text}")
+        failed_file = pathlib.Path(str(payload.get("last_failed_file", "") or "")).name or "无"
+        failed_reason = str(payload.get("last_failed_reason", "") or "无")
+        self.failed_file_label.setText(f"最近失败：{failed_file}")
+        self.failed_reason_label.setText(f"失败原因：{failed_reason}")
         active = status in {"queued", "running", "waiting", "stopping"}
         self.run_button.setEnabled(not active)
         self.stop_button.setEnabled(active)
@@ -628,6 +728,17 @@ class MainWindow(QWidget):
         self.cover_note.setObjectName("MutedText")
         self.cover_note.setWordWrap(True)
 
+        self.transcode_mode_group = QButtonGroup(shared_card)
+        self.transcode_enable_radio = QRadioButton("转码为目标格式")
+        self.transcode_disable_radio = QRadioButton("仅解密，不转码")
+        self.transcode_mode_group.addButton(self.transcode_enable_radio)
+        self.transcode_mode_group.addButton(self.transcode_disable_radio)
+        self.transcode_note = QLabel(
+            "提示：关闭转码后，QQ / 酷我 / 酷狗会直接输出解密后的原始音频格式，通常更快；平台格式下拉会暂时失效。"
+        )
+        self.transcode_note.setObjectName("MutedText")
+        self.transcode_note.setWordWrap(True)
+
         self.album_mode_group = QButtonGroup(shared_card)
         self.album_enable_radio = QRadioButton("补充专辑信息")
         self.album_disable_radio = QRadioButton("不补充专辑信息")
@@ -660,6 +771,16 @@ class MainWindow(QWidget):
         cover_row.addWidget(self.cover_disable_radio)
         cover_row.addStretch(1)
 
+        transcode_row = QHBoxLayout()
+        transcode_row.setContentsMargins(0, 0, 0, 0)
+        transcode_row.setSpacing(14)
+        transcode_label = QLabel("输出处理")
+        transcode_label.setObjectName("FieldLabel")
+        transcode_row.addWidget(transcode_label)
+        transcode_row.addWidget(self.transcode_enable_radio)
+        transcode_row.addWidget(self.transcode_disable_radio)
+        transcode_row.addStretch(1)
+
         album_row = QHBoxLayout()
         album_row.setContentsMargins(0, 0, 0, 0)
         album_row.setSpacing(14)
@@ -687,6 +808,8 @@ class MainWindow(QWidget):
         shared_layout.addWidget(self.output_mode_note)
         shared_layout.addWidget(self.output_field)
         shared_layout.addWidget(self.recursive_checkbox)
+        shared_layout.addLayout(transcode_row)
+        shared_layout.addWidget(self.transcode_note)
         shared_layout.addLayout(cover_row)
         shared_layout.addWidget(self.cover_note)
         shared_layout.addLayout(album_row)
@@ -701,7 +824,7 @@ class MainWindow(QWidget):
         tabs_layout.setSpacing(12)
         tabs_title = QLabel("平台解密")
         tabs_title.setObjectName("SectionTitle")
-        tabs_hint = QLabel("每个平台单独占一个标签页，方便集中查看状态、配置和操作。")
+        tabs_hint = QLabel("先确认上方共享设置，再切到平台标签页执行任务。每个标签页都会显示当前文件、最近失败文件和具体失败原因。")
         tabs_hint.setObjectName("MutedText")
         tabs_hint.setWordWrap(True)
         self.platform_tabs = QTabWidget()
@@ -784,6 +907,8 @@ class MainWindow(QWidget):
             lambda: self._choose_path(self.output_field))
         self.output_mode_shared_radio.toggled.connect(self._update_output_mode_widgets)
         self.output_mode_platform_radio.toggled.connect(self._update_output_mode_widgets)
+        self.transcode_enable_radio.toggled.connect(self._update_transcode_widgets)
+        self.transcode_disable_radio.toggled.connect(self._update_transcode_widgets)
         self.save_button.clicked.connect(self._save_config_from_widgets)
         self.reload_button.clicked.connect(self._reload_config)
         self.open_output_button.clicked.connect(self._open_output_dir)
@@ -824,6 +949,10 @@ class MainWindow(QWidget):
             str(shared.get("output_dir", self.paths.output_dir)))
         self.recursive_checkbox.setChecked(bool(shared.get("recursive", True)))
         self._update_output_mode_widgets()
+        if bool(shared.get("transcode_enabled", True)):
+            self.transcode_enable_radio.setChecked(True)
+        else:
+            self.transcode_disable_radio.setChecked(True)
         if bool(shared.get("embed_cover_art", True)):
             self.cover_enable_radio.setChecked(True)
         else:
@@ -874,12 +1003,15 @@ class MainWindow(QWidget):
 
         self._cards["netease"].extra_field("output_dir").setText(
             str(netease.get("output_dir", pathlib.Path(self.paths.output_dir) / "netease")))
+        self._update_transcode_widgets()
+
     def _save_config_from_widgets(self, *, announce: bool = True) -> None:
         shared = {
             "output_mode": "per_platform" if self.output_mode_platform_radio.isChecked() else "shared",
             "output_dir": self.output_field.text() or str(self.paths.output_dir),
             "cli_collision_policy": "suffix",
             "recursive": self.recursive_checkbox.isChecked(),
+            "transcode_enabled": self.transcode_enable_radio.isChecked(),
             "embed_cover_art": self.cover_enable_radio.isChecked(),
             "supplement_album_metadata": self.album_enable_radio.isChecked(),
         }
@@ -950,6 +1082,19 @@ class MainWindow(QWidget):
             self.output_field.label.setText("共享输出目录")
             self.output_mode_note.setText("共享模式已启用：所有平台共用同一个输出目录。")
 
+    def _update_transcode_widgets(self) -> None:
+        enabled = self.transcode_enable_radio.isChecked()
+        for platform_id in ("qq", "kuwo", "kugou"):
+            self._cards[platform_id].set_formats_enabled(enabled)
+        if enabled:
+            self.transcode_note.setText(
+                "提示：已启用转码。QQ / 酷我 / 酷狗会按标签页里选择的目标格式输出。"
+            )
+        else:
+            self.transcode_note.setText(
+                "提示：已关闭转码。QQ / 酷我 / 酷狗会直接输出解密后的原始音频格式，通常更快，也更接近源文件。"
+            )
+
     def _resolve_output_dir(self, platform_id: str) -> pathlib.Path:
         base_output = pathlib.Path(self.output_field.text() or str(self.paths.output_dir))
         if self.output_mode_platform_radio.isChecked():
@@ -981,6 +1126,7 @@ class MainWindow(QWidget):
         input_path = pathlib.Path(self._cards[platform_id].input_field.text())
         output_dir = self._resolve_output_dir(platform_id)
         settings = dict(self.config[platform_id])
+        settings["transcode_enabled"] = bool(self.config.get("shared", {}).get("transcode_enabled", True))
         settings["embed_cover_art"] = bool(self.config.get("shared", {}).get("embed_cover_art", True))
         settings["supplement_album_metadata"] = bool(self.config.get("shared", {}).get("supplement_album_metadata", False))
         recursive = self.recursive_checkbox.isChecked()
@@ -1154,6 +1300,10 @@ class MainWindow(QWidget):
         error = str(data.get("error", "") or "")
         if not submitted:
             self._cards[platform_id].run_button.setEnabled(True)
+            self._cards[platform_id].status_label.setText("状态：失败")
+            self._cards[platform_id].message_label.setText(f"说明：{error or '任务未提交'}")
+            self._cards[platform_id].failed_file_label.setText("最近失败：启动前检查")
+            self._cards[platform_id].failed_reason_label.setText(f"失败原因：{error or '任务未提交'}")
             if error:
                 self._append_log(f"[{title}] {error}")
             if not data.get("cancelled"):
@@ -1198,6 +1348,9 @@ def main() -> int:
     icon_path = runtime_root / "封面" / "封面.ico"
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
+    if not is_running_as_admin():
+        AdminRequiredDialog().exec()
+        return 2
     window = MainWindow()
     window.show()
     QTimer.singleShot(120, lambda: StartupNoticeDialog(window).exec())

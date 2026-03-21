@@ -20,12 +20,20 @@ class QQPlatformAdapter:
     platform_id: str = "qq"
     display_name: str = "QQ音乐"
     _gateway: FridaDecryptGateway | None = field(default=None, init=False, repr=False)
+    _fallback: QQExportFallbackService | None = field(default=None, init=False, repr=False)
 
     def _load_runtime(self):
         from src.Infrastructure.platforms.qq.runtime.frida_decrypt_gateway import FridaDecryptGateway
         from src.Infrastructure.platforms.qq.runtime.qqmusic_decrypt import pick_safe_tmp_dir
 
         return FridaDecryptGateway, pick_safe_tmp_dir
+
+    def _ensure_fallback(self) -> QQExportFallbackService:
+        if self._fallback is None:
+            from src.Infrastructure.platforms.qq.export_fallback import QQExportFallbackService
+
+            self._fallback = QQExportFallbackService()
+        return self._fallback
 
     def requires_running_process(self) -> bool:
         return True
@@ -67,27 +75,55 @@ class QQPlatformAdapter:
         FridaDecryptGateway, pick_safe_tmp_dir = self._load_runtime()
         if self._gateway is None:
             self._gateway = FridaDecryptGateway()
+        fallback = self._ensure_fallback()
+        prefer_export_fallback = bool(settings.get("qq_prefer_export_fallback", False))
         source_suffix = input_path.suffix.lower().lstrip(".")
         default_ext = RAW_CONTAINER_RULES.get(source_suffix, "flac")
         safe_tmp_root = pathlib.Path(pick_safe_tmp_dir(str(work_dir))).resolve()
         safe_tmp_root.mkdir(parents=True, exist_ok=True)
         safe_output = safe_tmp_root / f"qq_{time.time_ns()}.{default_ext}"
         final_work_path = work_dir / f"{input_path.stem}.{default_ext}"
-        ok = self._gateway.decrypt_file(str(input_path), str(safe_output))
-        if not ok or not safe_output.exists() or safe_output.stat().st_size <= 1024:
-            raise RuntimeError("qq_decrypt_failed")
-        final_work_path.parent.mkdir(parents=True, exist_ok=True)
-        if final_work_path.exists():
-            final_work_path.unlink()
-        shutil.move(str(safe_output), str(final_work_path))
+        backend = "frida:qqmusic"
+        fallback_result: QQExportFallbackResult | None = None
+        decrypt_exception: Exception | None = None
+        if prefer_export_fallback:
+            fallback_result = fallback.stage_exported_flac(input_path, final_work_path)
+            if fallback_result.status != "staged":
+                raise RuntimeError("qq_export_flac_not_found")
+            backend = "qq-export-flac"
+        else:
+            try:
+                ok = self._gateway.decrypt_file(str(input_path), str(safe_output))
+            except Exception as exc:  # pragma: no cover - runtime-specific failure
+                decrypt_exception = exc
+                ok = False
+            if ok and safe_output.exists() and safe_output.stat().st_size > 1024:
+                final_work_path.parent.mkdir(parents=True, exist_ok=True)
+                if final_work_path.exists():
+                    final_work_path.unlink()
+                shutil.move(str(safe_output), str(final_work_path))
+            else:
+                safe_output.unlink(missing_ok=True)
+                fallback_result = fallback.stage_exported_flac(input_path, final_work_path)
+                if fallback_result.status != "staged":
+                    if decrypt_exception is not None:
+                        raise RuntimeError(f"qq_decrypt_failed:{decrypt_exception}")
+                    raise RuntimeError("qq_decrypt_failed")
+                backend = "qq-export-flac"
         detected_container, recognition_stage = detect_audio_container(final_work_path)
+        if detected_container == "bin":
+            fallback_result = fallback.stage_exported_flac(input_path, final_work_path)
+            if fallback_result.status != "staged":
+                raise RuntimeError("unrecognized_audio_container")
+            backend = "qq-export-flac"
+            detected_container, recognition_stage = detect_audio_container(final_work_path)
         elapsed = round(time.perf_counter() - started, 6)
-        return {
+        detail = {
             "output_path": str(final_work_path),
             "detected_container": detected_container,
             "final_extension": detected_container,
             "recognition_stage": recognition_stage,
-            "backend": "frida:qqmusic",
+            "backend": backend,
             "decoded_bytes": final_work_path.stat().st_size,
             "timing": {
                 "header_parse_sec": 0.0,
@@ -97,3 +133,8 @@ class QQPlatformAdapter:
                 "total_sec": elapsed,
             },
         }
+        if fallback_result is not None and fallback_result.status == "staged":
+            detail["fallback_export_path"] = fallback_result.exported_path
+            detail["fallback_mode"] = "qq_export_flac"
+            detail["fallback_source_input"] = str(input_path)
+        return detail

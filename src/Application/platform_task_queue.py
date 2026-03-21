@@ -45,6 +45,8 @@ class PlatformTaskState:
     batch_report_txt: str = ""
     timing_hotspot: dict[str, Any] = field(default_factory=dict)
     last_timing: dict[str, Any] = field(default_factory=dict)
+    last_failed_file: str = ""
+    last_failed_reason: str = ""
     last_updated: float = field(default_factory=time.time)
 
     def to_payload(self) -> dict[str, Any]:
@@ -72,6 +74,8 @@ class PlatformTaskState:
             "batch_report_txt": self.batch_report_txt,
             "timing_hotspot": dict(self.timing_hotspot),
             "last_timing": dict(self.last_timing),
+            "last_failed_file": self.last_failed_file,
+            "last_failed_reason": self.last_failed_reason,
             "last_updated": self.last_updated,
         }
 
@@ -339,6 +343,8 @@ class PlatformTaskQueue:
                 task.current_file = ""
                 task.last_timing = {}
                 task.timing_hotspot = {}
+                task.last_failed_file = ""
+                task.last_failed_reason = ""
                 task.message = "批次已开始"
             elif event_name == "file_started":
                 task.current_file = str(payload.get("input_path", "") or "")
@@ -373,6 +379,9 @@ class PlatformTaskQueue:
                     task.skipped_count += 1
                 elif result == "failed":
                     task.failed_count += 1
+                    task.last_failed_file = pathlib.Path(str(payload.get("input_path", "") or task.current_file)).name or "未知文件"
+                    task.last_failed_reason = str(payload.get("reason", "") or "未知错误")
+                    task.message = f"最近失败：{task.last_failed_file}"
                 task.last_timing = dict(payload.get("timing", {}) or {})
             elif event_name == "batch_finished":
                 task.success_count = int(payload.get("success_count", task.success_count) or task.success_count)

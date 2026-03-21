@@ -77,6 +77,13 @@ def _album_metadata_enabled(settings: dict[str, Any]) -> bool:
     return bool(value)
 
 
+def _transcode_enabled(settings: dict[str, Any]) -> bool:
+    value = settings.get("transcode_enabled", True)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return bool(value)
+
+
 def _maybe_attach_cover(
     logger: logging.Logger,
     config: BatchRunConfig,
@@ -329,7 +336,9 @@ def _maybe_transcode(logger: logging.Logger, input_path: pathlib.Path, target_fo
     return target_path, target_format, meta
 
 
-def _normalize_final_target(desired_target: str, detected_container: str) -> str:
+def _normalize_final_target(desired_target: str, detected_container: str, *, transcode_enabled: bool) -> str:
+    if not transcode_enabled:
+        return str(detected_container or "bin").lower()
     normalized = normalize_target_format(desired_target)
     if normalized == "ogg":
         return "m4a"
@@ -467,96 +476,139 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
                 continue
         file_timing["dedupe_sec"] = round(time.perf_counter() - dedupe_started, 6)
 
-        try:
-            decrypt_started = time.perf_counter()
-            detail = adapter.decrypt_one(file_path, work_dir, config.settings, log_dir=log_dir)
-            file_timing["decrypt_sec"] = round(time.perf_counter() - decrypt_started, 6)
-            decrypt_detail_timing = _artifact_timing(detail)
-            _log_decrypt_detail(logger, config.platform_id, index, len(files), file_path.name, detail, decrypt_detail_timing)
+        qq_export_retry_attempted = False
+        while True:
+            working_path: pathlib.Path | None = None
+            try:
+                decrypt_settings = dict(config.settings)
+                if qq_export_retry_attempted:
+                    decrypt_settings["qq_prefer_export_fallback"] = True
+                decrypt_started = time.perf_counter()
+                detail = adapter.decrypt_one(file_path, work_dir, decrypt_settings, log_dir=log_dir)
+                file_timing["decrypt_sec"] = round(time.perf_counter() - decrypt_started, 6)
+                decrypt_detail_timing = _artifact_timing(detail)
+                _log_decrypt_detail(logger, config.platform_id, index, len(files), file_path.name, detail, decrypt_detail_timing)
 
-            working_path = pathlib.Path(str(detail["output_path"]))
-            if _is_stop_requested(config):
-                stopped_early = True
-                logger.info("stop_requested_after_decrypt: %s", file_path.name)
-                _cleanup_working_path(working_path)
-                break
-            detected_container = str(detail.get("detected_container") or detail.get("final_extension") or "bin").lower()
-            decrypt_summary = _log_media_summary(logger, "Decrypt media summary", working_path)
-            summary_error = _validate_summary(logger, "Decrypt", working_path, decrypt_summary)
-            if summary_error:
-                raise RuntimeError(str(detail.get("reason") or summary_error))
+                working_path = pathlib.Path(str(detail["output_path"]))
+                if _is_stop_requested(config):
+                    stopped_early = True
+                    logger.info("stop_requested_after_decrypt: %s", file_path.name)
+                    _cleanup_working_path(working_path)
+                    break
+                detected_container = str(detail.get("detected_container") or detail.get("final_extension") or "bin").lower()
+                decrypt_summary = _log_media_summary(logger, "Decrypt media summary", working_path)
+                summary_error = _validate_summary(logger, "Decrypt", working_path, decrypt_summary)
+                if summary_error:
+                    raise RuntimeError(str(detail.get("reason") or summary_error))
 
-            desired_target = _normalize_final_target(desired_target, detected_container)
-            working_path, final_extension, transcode_meta = _maybe_transcode(logger, file_path, desired_target, working_path, detected_container, file_timing)
-            if final_extension == "ogg":
-                logger.info("final_container_ogg_detected: %s -> forcing m4a publish", file_path.name)
-                working_path, final_extension, transcode_meta = _maybe_transcode(
+                desired_target = _normalize_final_target(
+                    desired_target,
+                    detected_container,
+                    transcode_enabled=_transcode_enabled(config.settings),
+                )
+                working_path, final_extension, transcode_meta = _maybe_transcode(logger, file_path, desired_target, working_path, detected_container, file_timing)
+                if final_extension == "ogg":
+                    logger.info("final_container_ogg_detected: %s -> forcing m4a publish", file_path.name)
+                    working_path, final_extension, transcode_meta = _maybe_transcode(
+                        logger,
+                        file_path,
+                        "m4a",
+                        working_path,
+                        final_extension,
+                        file_timing,
+                    )
+                if _is_stop_requested(config):
+                    stopped_early = True
+                    logger.info("stop_requested_after_transcode: %s", file_path.name)
+                    _cleanup_working_path(working_path)
+                    break
+                _maybe_attach_cover(
                     logger,
+                    config,
+                    cover_service,
                     file_path,
-                    "m4a",
                     working_path,
-                    final_extension,
-                    file_timing,
+                    index=index,
+                    total_count=len(files),
                 )
-            if _is_stop_requested(config):
-                stopped_early = True
-                logger.info("stop_requested_after_transcode: %s", file_path.name)
-                _cleanup_working_path(working_path)
-                break
-            _maybe_attach_cover(
-                logger,
-                config,
-                cover_service,
-                file_path,
-                working_path,
-                index=index,
-                total_count=len(files),
-            )
-            if _is_stop_requested(config):
-                stopped_early = True
-                logger.info("stop_requested_after_cover: %s", file_path.name)
-                _cleanup_working_path(working_path)
-                break
-            _maybe_supplement_album_metadata(
-                logger,
-                config,
-                cover_service,
-                file_path,
-                working_path,
-                index=index,
-                total_count=len(files),
-            )
-            if _is_stop_requested(config):
-                stopped_early = True
-                logger.info("stop_requested_after_metadata: %s", file_path.name)
-                _cleanup_working_path(working_path)
-                break
-            final_summary = _log_media_summary(logger, "Final media summary", working_path)
-            summary_error = _validate_summary(logger, "Final publish", working_path, final_summary)
-            if summary_error:
-                raise RuntimeError(summary_error)
-            publish_started = time.perf_counter()
-            if publish_hint is None or publish_hint[0].suffix.lower() != f".{final_extension}":
-                publish_hint = _resolve_publish_target(
-                    base_name=basename,
-                    input_path=file_path,
-                    extension=final_extension,
-                    platform_id=config.platform_id,
-                    output_dir=config.output_dir,
-                    manifest_repo=manifest_repo,
-                    config=config,
+                if _is_stop_requested(config):
+                    stopped_early = True
+                    logger.info("stop_requested_after_cover: %s", file_path.name)
+                    _cleanup_working_path(working_path)
+                    break
+                _maybe_supplement_album_metadata(
+                    logger,
+                    config,
+                    cover_service,
+                    file_path,
+                    working_path,
+                    index=index,
+                    total_count=len(files),
                 )
-            final_target, publish_mode, existing_platform = publish_hint
-            if final_target.exists() and publish_mode == "existing_same_platform":
-                if working_path.exists():
-                    working_path.unlink()
-                skipped_count += 1
+                if _is_stop_requested(config):
+                    stopped_early = True
+                    logger.info("stop_requested_after_metadata: %s", file_path.name)
+                    _cleanup_working_path(working_path)
+                    break
+                final_summary = _log_media_summary(logger, "Final media summary", working_path)
+                summary_error = _validate_summary(logger, "Final publish", working_path, final_summary)
+                if summary_error:
+                    raise RuntimeError(summary_error)
+                publish_started = time.perf_counter()
+                if publish_hint is None or publish_hint[0].suffix.lower() != f".{final_extension}":
+                    publish_hint = _resolve_publish_target(
+                        base_name=basename,
+                        input_path=file_path,
+                        extension=final_extension,
+                        platform_id=config.platform_id,
+                        output_dir=config.output_dir,
+                        manifest_repo=manifest_repo,
+                        config=config,
+                    )
+                final_target, publish_mode, existing_platform = publish_hint
+                if final_target.exists() and publish_mode == "existing_same_platform":
+                    if working_path.exists():
+                        working_path.unlink()
+                    skipped_count += 1
+                    file_timing["publish_sec"] = round(time.perf_counter() - publish_started, 6)
+                    file_timing["total_sec"] = round(time.perf_counter() - file_started, 6)
+                    _accumulate(timing_batch_total, file_timing)
+                    logger.info("skip_duplicate_after_decode: %s -> %s", file_path.name, final_target)
+                    logger.info("[timing] file_done [%d/%d] %s reason=already_decrypted %s", index, len(files), file_path.name, timing_text(file_timing))
+                    result = FileResult(ok=True, skipped=True, platform_id=config.platform_id, input_path=str(file_path), output_path=str(final_target), reason="already_decrypted", timing=_copy_timing(file_timing), decrypt_detail_timing=decrypt_detail_timing, payload=detail)
+                    results.append(result)
+                    _emit_event(
+                        config,
+                        "file_finished",
+                        {
+                            "platform_id": config.platform_id,
+                            "index": index,
+                            "total": len(files),
+                            "result": "already_decrypted",
+                            "output_path": str(final_target),
+                            "timing": dict(result.timing),
+                            "decrypt_detail_timing": dict(result.decrypt_detail_timing),
+                        },
+                    )
+                    break
+                published = _publish_file(working_path, final_target)
                 file_timing["publish_sec"] = round(time.perf_counter() - publish_started, 6)
                 file_timing["total_sec"] = round(time.perf_counter() - file_started, 6)
                 _accumulate(timing_batch_total, file_timing)
-                logger.info("skip_duplicate_after_decode: %s -> %s", file_path.name, final_target)
-                logger.info("[timing] file_done [%d/%d] %s reason=already_decrypted %s", index, len(files), file_path.name, timing_text(file_timing))
-                result = FileResult(ok=True, skipped=True, platform_id=config.platform_id, input_path=str(file_path), output_path=str(final_target), reason="already_decrypted", timing=_copy_timing(file_timing), decrypt_detail_timing=decrypt_detail_timing, payload=detail)
+                manifest_repo.set_platform(published, config.platform_id)
+                payload = dict(detail)
+                payload.update({
+                    "detected_container": detected_container,
+                    "final_extension": final_extension,
+                    "publish_mode": publish_mode,
+                    "existing_platform": existing_platform,
+                })
+                if transcode_meta is not None:
+                    payload["transcode"] = transcode_meta
+                logger.info("success: %s -> %s", file_path.name, published)
+                logger.info("[timing] decrypt [%d/%d] %s elapsed=%.3fs", index, len(files), file_path.name, file_timing["decrypt_sec"])
+                logger.info("[timing] file_done [%d/%d] %s reason=success %s", index, len(files), file_path.name, timing_text(file_timing))
+                result = FileResult(ok=True, skipped=False, platform_id=config.platform_id, input_path=str(file_path), output_path=str(published), timing=_copy_timing(file_timing), decrypt_detail_timing=decrypt_detail_timing, payload=payload)
                 results.append(result)
                 _emit_event(
                     config,
@@ -565,67 +617,47 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
                         "platform_id": config.platform_id,
                         "index": index,
                         "total": len(files),
-                        "result": "already_decrypted",
-                        "output_path": str(final_target),
+                        "result": "success",
+                        "output_path": str(published),
                         "timing": dict(result.timing),
                         "decrypt_detail_timing": dict(result.decrypt_detail_timing),
+                        "payload": dict(payload),
                     },
                 )
-                continue
-            published = _publish_file(working_path, final_target)
-            file_timing["publish_sec"] = round(time.perf_counter() - publish_started, 6)
-            file_timing["total_sec"] = round(time.perf_counter() - file_started, 6)
-            _accumulate(timing_batch_total, file_timing)
-            manifest_repo.set_platform(published, config.platform_id)
-            payload = dict(detail)
-            payload.update({
-                "detected_container": detected_container,
-                "final_extension": final_extension,
-                "publish_mode": publish_mode,
-                "existing_platform": existing_platform,
-            })
-            if transcode_meta is not None:
-                payload["transcode"] = transcode_meta
-            logger.info("success: %s -> %s", file_path.name, published)
-            logger.info("[timing] decrypt [%d/%d] %s elapsed=%.3fs", index, len(files), file_path.name, file_timing["decrypt_sec"])
-            logger.info("[timing] file_done [%d/%d] %s reason=success %s", index, len(files), file_path.name, timing_text(file_timing))
-            result = FileResult(ok=True, skipped=False, platform_id=config.platform_id, input_path=str(file_path), output_path=str(published), timing=_copy_timing(file_timing), decrypt_detail_timing=decrypt_detail_timing, payload=payload)
-            results.append(result)
-            _emit_event(
-                config,
-                "file_finished",
-                {
-                    "platform_id": config.platform_id,
-                    "index": index,
-                    "total": len(files),
-                    "result": "success",
-                    "output_path": str(published),
-                    "timing": dict(result.timing),
-                    "decrypt_detail_timing": dict(result.decrypt_detail_timing),
-                    "payload": dict(payload),
-                },
-            )
-            success_count += 1
-        except Exception as exc:
-            file_timing["total_sec"] = round(time.perf_counter() - file_started, 6)
-            _accumulate(timing_batch_total, file_timing)
-            logger.warning("failed: %s reason=%s", file_path.name, exc)
-            logger.info("[timing] file_done [%d/%d] %s reason=%s %s", index, len(files), file_path.name, exc, timing_text(file_timing))
-            result = FileResult(ok=False, skipped=False, platform_id=config.platform_id, input_path=str(file_path), reason=str(exc), timing=_copy_timing(file_timing))
-            results.append(result)
-            _emit_event(
-                config,
-                "file_finished",
-                {
-                    "platform_id": config.platform_id,
-                    "index": index,
-                    "total": len(files),
-                    "result": "failed",
-                    "reason": str(exc),
-                    "timing": dict(result.timing),
-                },
-            )
-            failed_count += 1
+                success_count += 1
+                break
+            except Exception as exc:
+                if config.platform_id == "qq" and not qq_export_retry_attempted:
+                    qq_export_retry_attempted = True
+                    logger.warning(
+                        "qq_export_retry_from_source: %s original_reason=%s source=%s",
+                        file_path.name,
+                        exc,
+                        file_path,
+                    )
+                    _cleanup_working_path(working_path)
+                    continue
+                file_timing["total_sec"] = round(time.perf_counter() - file_started, 6)
+                _accumulate(timing_batch_total, file_timing)
+                logger.warning("failed: %s reason=%s", file_path.name, exc)
+                logger.info("[timing] file_done [%d/%d] %s reason=%s %s", index, len(files), file_path.name, exc, timing_text(file_timing))
+                result = FileResult(ok=False, skipped=False, platform_id=config.platform_id, input_path=str(file_path), reason=str(exc), timing=_copy_timing(file_timing))
+                results.append(result)
+                _emit_event(
+                    config,
+                    "file_finished",
+                    {
+                        "platform_id": config.platform_id,
+                        "index": index,
+                        "total": len(files),
+                        "result": "failed",
+                        "input_path": str(file_path),
+                        "reason": str(exc),
+                        "timing": dict(result.timing),
+                    },
+                )
+                failed_count += 1
+                break
 
     timed_file_count = len(files) if files else 1
     timing_batch_avg = {key: round(float(timing_batch_total.get(key, 0.0)) / float(timed_file_count), 6) for key in TIMING_STAGE_KEYS}
