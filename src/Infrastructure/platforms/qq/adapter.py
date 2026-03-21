@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import logging
 import pathlib
 import shutil
 import time
@@ -13,6 +14,7 @@ SUPPORTED_SUFFIXES = {".mflac", ".mgg", ".mmp4"}
 DEFAULT_RULES = {"mflac": "flac", "mgg": "m4a", "mmp4": "m4a"}
 RAW_CONTAINER_RULES = {"mflac": "flac", "mgg": "ogg", "mmp4": "m4a"}
 WHITELIST = {"flac", "m4a", "mp3", "wav"}
+logger = logging.getLogger("qkkdecrypt.infrastructure.platforms.qq")
 
 
 @dataclass(slots=True)
@@ -20,6 +22,7 @@ class QQPlatformAdapter:
     platform_id: str = "qq"
     display_name: str = "QQ音乐"
     _gateway: FridaDecryptGateway | None = field(default=None, init=False, repr=False)
+    _internal_direct: QQInternalDirectDecryptService | None = field(default=None, init=False, repr=False)
     _fallback: QQExportFallbackService | None = field(default=None, init=False, repr=False)
 
     def _load_runtime(self):
@@ -34,6 +37,75 @@ class QQPlatformAdapter:
 
             self._fallback = QQExportFallbackService()
         return self._fallback
+
+    def _ensure_internal_direct(self) -> QQInternalDirectDecryptService:
+        if self._internal_direct is None:
+            from src.Infrastructure.platforms.qq.internal_direct import QQInternalDirectDecryptService
+
+            self._internal_direct = QQInternalDirectDecryptService()
+        return self._internal_direct
+
+    @staticmethod
+    def _format_internal_direct_status(status: str, message: str) -> str:
+        mapping = {
+            "qq_not_running": "qq_internal_direct_not_running: QQ音乐未运行，无法触发内部直解",
+            "timeout": "qq_internal_direct_timeout: QQ 内部直解未在限定时间内触发",
+            "attach_failed": "qq_internal_direct_attach_failed: QQ 内部直解附加失败",
+            "hook_error": "qq_internal_direct_hook_error: QQ 内部直解 Hook 失败",
+            "invoke_failed": "qq_internal_direct_invoke_failed: QQ 内部直解返回失败",
+            "output_missing": "qq_internal_direct_output_missing: QQ 内部直解已触发，但未生成输出文件",
+        }
+        if status in mapping:
+            return mapping[status]
+        if message:
+            return f"qq_internal_direct_failed: {message}"
+        return "qq_internal_direct_failed: QQ 内部直解失败"
+
+    def _try_stage_fallback_chain(
+        self,
+        input_path: pathlib.Path,
+        stage_path: pathlib.Path,
+        *,
+        reason: str,
+    ) -> tuple[str, dict[str, str]]:
+        internal_direct = self._ensure_internal_direct()
+        fallback = self._ensure_fallback()
+
+        direct_result = internal_direct.stage_internal_flac(str(input_path), str(stage_path))
+        if direct_result.status == "staged":
+            logger.warning(
+                "QQ internal direct decrypt engaged: %s | reason=%s source_cache=%s staged=%s",
+                input_path,
+                reason,
+                direct_result.source_cache_path or "",
+                direct_result.staged_path or "",
+            )
+            return "qq-internal-direct-flac", {
+                "fallback_mode": "qq_internal_direct",
+                "fallback_source_input": str(input_path),
+                "source_cache_path": str(direct_result.source_cache_path or ""),
+                "original_output_path": str(direct_result.original_output_path or ""),
+                "cover_path": str(direct_result.cover_path or ""),
+            }
+
+        export_result = fallback.stage_exported_flac(input_path, stage_path)
+        if export_result.status == "staged":
+            logger.warning(
+                "QQ export fallback engaged: %s | reason=%s export=%s",
+                input_path,
+                reason,
+                export_result.exported_path or "",
+            )
+            return "qq-export-flac", {
+                "fallback_mode": "qq_export_flac",
+                "fallback_source_input": str(input_path),
+                "fallback_export_path": str(export_result.exported_path or ""),
+            }
+
+        raise RuntimeError(
+            f"{self._format_internal_direct_status(direct_result.status, direct_result.message)}; "
+            f"qq_export_flac_not_found: 未找到 QQ 导出的 FLAC"
+        )
 
     def requires_running_process(self) -> bool:
         return True
@@ -75,7 +147,6 @@ class QQPlatformAdapter:
         FridaDecryptGateway, pick_safe_tmp_dir = self._load_runtime()
         if self._gateway is None:
             self._gateway = FridaDecryptGateway()
-        fallback = self._ensure_fallback()
         prefer_export_fallback = bool(settings.get("qq_prefer_export_fallback", False))
         source_suffix = input_path.suffix.lower().lstrip(".")
         default_ext = RAW_CONTAINER_RULES.get(source_suffix, "flac")
@@ -84,13 +155,15 @@ class QQPlatformAdapter:
         safe_output = safe_tmp_root / f"qq_{time.time_ns()}.{default_ext}"
         final_work_path = work_dir / f"{input_path.stem}.{default_ext}"
         backend = "frida:qqmusic"
-        fallback_result: QQExportFallbackResult | None = None
+        fallback_detail: dict[str, str] = {}
         decrypt_exception: Exception | None = None
+
         if prefer_export_fallback:
-            fallback_result = fallback.stage_exported_flac(input_path, final_work_path)
-            if fallback_result.status != "staged":
-                raise RuntimeError("qq_export_flac_not_found")
-            backend = "qq-export-flac"
+            backend, fallback_detail = self._try_stage_fallback_chain(
+                input_path,
+                final_work_path,
+                reason="retry_from_source",
+            )
         else:
             try:
                 ok = self._gateway.decrypt_file(str(input_path), str(safe_output))
@@ -104,19 +177,21 @@ class QQPlatformAdapter:
                 shutil.move(str(safe_output), str(final_work_path))
             else:
                 safe_output.unlink(missing_ok=True)
-                fallback_result = fallback.stage_exported_flac(input_path, final_work_path)
-                if fallback_result.status != "staged":
-                    if decrypt_exception is not None:
-                        raise RuntimeError(f"qq_decrypt_failed:{decrypt_exception}")
-                    raise RuntimeError("qq_decrypt_failed")
-                backend = "qq-export-flac"
+                backend, fallback_detail = self._try_stage_fallback_chain(
+                    input_path,
+                    final_work_path,
+                    reason="decrypt_gateway_exception" if decrypt_exception is not None else "decrypt_gateway_failed",
+                )
+
         detected_container, recognition_stage = detect_audio_container(final_work_path)
         if detected_container == "bin":
-            fallback_result = fallback.stage_exported_flac(input_path, final_work_path)
-            if fallback_result.status != "staged":
-                raise RuntimeError("unrecognized_audio_container")
-            backend = "qq-export-flac"
+            backend, fallback_detail = self._try_stage_fallback_chain(
+                input_path,
+                final_work_path,
+                reason="unrecognized_audio_container",
+            )
             detected_container, recognition_stage = detect_audio_container(final_work_path)
+
         elapsed = round(time.perf_counter() - started, 6)
         detail = {
             "output_path": str(final_work_path),
@@ -133,8 +208,6 @@ class QQPlatformAdapter:
                 "total_sec": elapsed,
             },
         }
-        if fallback_result is not None and fallback_result.status == "staged":
-            detail["fallback_export_path"] = fallback_result.exported_path
-            detail["fallback_mode"] = "qq_export_flac"
-            detail["fallback_source_input"] = str(input_path)
+        if fallback_detail:
+            detail.update(fallback_detail)
         return detail

@@ -630,7 +630,7 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
                 if config.platform_id == "qq" and not qq_export_retry_attempted:
                     qq_export_retry_attempted = True
                     logger.warning(
-                        "qq_export_retry_from_source: %s original_reason=%s source=%s",
+                        "qq_fallback_retry_from_source: %s original_reason=%s source=%s",
                         file_path.name,
                         exc,
                         file_path,
@@ -712,3 +712,4 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
     except Exception:
         pass
     return result_code
+
