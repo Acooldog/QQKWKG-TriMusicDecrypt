@@ -18,7 +18,7 @@ class QQVariantAdaptResult:
 class QQVariantAdapterService:
     """Prepare QQ encrypted inputs into a legacy-compatible form for the old chain.
 
-    Current rule-set focuses on the verified path-compatibility variant:
+    Current rule-set focuses on the verified path-sensitive mflac variant:
     stage the encrypted source into an ASCII-safe temporary path before the
     existing Frida decrypt flow touches it.
 
@@ -36,7 +36,7 @@ class QQVariantAdapterService:
         return QQVariantAdaptResult(
             status="staged",
             staged_path=str(staged_path),
-            mode="ascii_source_stage",
-            message="正在转换 QQ 加密变体，准备旧链兼容输入",
+            mode="path_sensitive_mflac",
+            message="正在转换 QQ 路径敏感型 mflac 变体，准备旧链兼容输入",
             original_input_path=str(source),
         )
