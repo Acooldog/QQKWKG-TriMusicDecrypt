@@ -2,6 +2,7 @@
 
 import ctypes
 import pathlib
+import subprocess
 import sys
 import threading
 from typing import Any
@@ -74,6 +75,48 @@ def is_running_as_admin() -> bool:
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
     except Exception:
         return False
+
+
+ADMIN_ACTION_CONTINUE = "continue"
+ADMIN_ACTION_RELAUNCH = "relaunch"
+ADMIN_ACTION_ALWAYS = "always"
+
+
+def _current_launch_command() -> tuple[str, str, str | None]:
+    executable = sys.executable
+    arguments = list(sys.argv[1:])
+    working_directory = None
+    if getattr(sys, "frozen", False):
+        working_directory = str(pathlib.Path(executable).resolve().parent)
+    else:
+        script_path = pathlib.Path(sys.argv[0]).resolve()
+        arguments = [str(script_path), *arguments]
+        working_directory = str(script_path.parent)
+    return executable, subprocess.list2cmdline(arguments), working_directory
+
+
+def relaunch_current_process_as_admin() -> tuple[bool, str | None]:
+    executable, parameters, working_directory = _current_launch_command()
+    try:
+        result = ctypes.windll.shell32.ShellExecuteW(
+            None,
+            "runas",
+            executable,
+            parameters or None,
+            working_directory,
+            1,
+        )
+    except Exception as exc:
+        return False, str(exc)
+    if result <= 32:
+        return False, f"提权启动失败，系统返回代码 {result}"
+    return True, None
+
+
+def set_always_run_as_admin(paths: RuntimePaths, enabled: bool) -> None:
+    root_config, config = load_config(paths)
+    config.setdefault("shared", {})["always_run_as_admin"] = bool(enabled)
+    save_config(paths, root_config, config)
 
 
 class GuardedComboBox(QComboBox):
@@ -309,15 +352,16 @@ class StartupNoticeDialog(QDialog):
 
 
 class AdminRequiredDialog(QDialog):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, relaunch_error: str | None = None, always_enabled: bool = False) -> None:
         super().__init__(parent)
         self._drag_origin: QPoint | None = None
-        self.setWindowTitle("需要管理员权限")
+        self.selected_action = ADMIN_ACTION_CONTINUE
+        self.setWindowTitle("管理员权限提示")
         self.setModal(True)
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setFixedSize(540, 300)
+        self.setFixedSize(560, 360)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(10, 10, 10, 10)
@@ -330,7 +374,7 @@ class AdminRequiredDialog(QDialog):
         shell_layout.setSpacing(0)
         outer.addWidget(shell)
 
-        title_bar = TitleBar(self, "需要管理员权限")
+        title_bar = TitleBar(self, "管理员权限提示")
         title_bar.min_button.hide()
         shell_layout.addWidget(title_bar)
 
@@ -340,27 +384,62 @@ class AdminRequiredDialog(QDialog):
         body_layout.setContentsMargins(22, 20, 22, 20)
         body_layout.setSpacing(12)
 
-        title = QLabel("请使用管理员身份启动本软件")
+        title = QLabel("当前不是管理员启动")
         title.setObjectName("CardTitle")
         message = QLabel(
-            "当前不是管理员启动。\n\n"
-            "为了稳定访问运行进程、数据库、签名文件以及运行时目录，A_QKKd 现在要求管理员权限运行。\n"
-            "请关闭本窗口后，右键程序并选择“以管理员身份运行”。"
+            "非管理员模式下，部分平台的进程访问、数据库读取和运行时目录写入可能受限。\n\n"
+            "你可以先继续运行；如果要完整能力，可以立即提权启动，也可以直接开启‘以后始终以管理员运行’。"
         )
         message.setWordWrap(True)
         message.setObjectName("MutedText")
 
-        confirm = QPushButton("退出")
-        confirm.setObjectName("DangerButton")
-        confirm.clicked.connect(self.accept)
+        state_note = QLabel(
+            "当前设置：以后始终以管理员运行 - {}".format("已开启" if always_enabled else "未开启")
+        )
+        state_note.setObjectName("MutedText")
 
         body_layout.addWidget(title)
         body_layout.addWidget(message)
+        body_layout.addWidget(state_note)
+
+        if relaunch_error:
+            error_label = QLabel(f"上一次提权启动未成功：{relaunch_error}")
+            error_label.setWordWrap(True)
+            error_label.setStyleSheet(f"color: {WARNING};")
+            body_layout.addWidget(error_label)
+
         body_layout.addStretch(1)
-        body_layout.addWidget(confirm)
+
+        button_column = QVBoxLayout()
+        button_column.setContentsMargins(0, 8, 0, 0)
+        button_column.setSpacing(10)
+
+        continue_button = QPushButton("继续运行")
+        continue_button.setObjectName("SecondaryButton")
+        continue_button.setMinimumHeight(40)
+        continue_button.clicked.connect(lambda: self._finish(ADMIN_ACTION_CONTINUE))
+
+        relaunch_button = QPushButton("以管理员启动")
+        relaunch_button.setObjectName("PrimaryButton")
+        relaunch_button.setMinimumHeight(40)
+        relaunch_button.clicked.connect(lambda: self._finish(ADMIN_ACTION_RELAUNCH))
+
+        always_button = QPushButton("以后始终以管理员运行")
+        always_button.setObjectName("GhostButton")
+        always_button.setMinimumHeight(40)
+        always_button.clicked.connect(lambda: self._finish(ADMIN_ACTION_ALWAYS))
+
+        button_column.addWidget(continue_button)
+        button_column.addWidget(relaunch_button)
+        button_column.addWidget(always_button)
+        body_layout.addLayout(button_column)
         shell_layout.addWidget(body)
 
         self.setStyleSheet(build_app_stylesheet())
+
+    def _finish(self, action: str) -> None:
+        self.selected_action = action
+        self.accept()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -1344,14 +1423,41 @@ class MainWindow(QWidget):
 def main() -> int:
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-    runtime_root = RuntimePaths.discover().root_dir
+    paths = RuntimePaths.discover()
+    runtime_root = paths.root_dir
     icon_path = runtime_root / "封面" / "封面.ico"
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
+
+    root_config, config = load_config(paths)
+    shared = config.get("shared", {}) if isinstance(config, dict) else {}
+    always_run_as_admin = bool(shared.get("always_run_as_admin", False))
+    relaunch_error: str | None = None
+
+    if not is_running_as_admin() and always_run_as_admin:
+        relaunched, relaunch_error = relaunch_current_process_as_admin()
+        if relaunched:
+            return 0
+
     if not is_running_as_admin():
-        AdminRequiredDialog().exec()
-        return 2
+        dialog = AdminRequiredDialog(
+            relaunch_error=relaunch_error,
+            always_enabled=always_run_as_admin,
+        )
+        dialog.exec()
+        action = dialog.selected_action if dialog.result() == QDialog.DialogCode.Accepted else ADMIN_ACTION_CONTINUE
+        if action == ADMIN_ACTION_ALWAYS:
+            config.setdefault("shared", {})["always_run_as_admin"] = True
+            save_config(paths, root_config, config)
+            action = ADMIN_ACTION_RELAUNCH
+        if action == ADMIN_ACTION_RELAUNCH:
+            relaunched, relaunch_error = relaunch_current_process_as_admin()
+            if relaunched:
+                return 0
+            QMessageBox.warning(None, "提权启动失败", relaunch_error or "无法以管理员身份重新启动程序。将继续以当前权限运行。")
+
     window = MainWindow()
     window.show()
     QTimer.singleShot(120, lambda: StartupNoticeDialog(window).exec())
     return app.exec()
+

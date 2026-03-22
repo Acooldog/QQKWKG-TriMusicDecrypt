@@ -109,6 +109,7 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
             "transcode_enabled": True,
             "embed_cover_art": True,
             "supplement_album_metadata": False,
+            "always_run_as_admin": False,
         },
         "qq": {
             "input_dir": str(DEFAULT_QQ_INPUT),
@@ -178,6 +179,13 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
         shared_transcode_enabled = bool(shared_transcode_enabled)
     config["shared"]["transcode_enabled"] = shared_transcode_enabled
 
+    shared_always_run_as_admin = config["shared"].get("always_run_as_admin", False)
+    if isinstance(shared_always_run_as_admin, str):
+        shared_always_run_as_admin = shared_always_run_as_admin.strip().lower() in {"1", "true", "yes", "y", "on"}
+    else:
+        shared_always_run_as_admin = bool(shared_always_run_as_admin)
+    config["shared"]["always_run_as_admin"] = shared_always_run_as_admin
+
     format_rules = config["qq"].get("format_rules")
     if not isinstance(format_rules, dict):
         format_rules = {"mflac": "flac", "mgg": "m4a", "mmp4": "m4a"}
@@ -236,4 +244,5 @@ def validate_target_format(value: str) -> str:
 
 def supported_transcode_formats() -> list[str]:
     return sorted(SUPPORTED_TARGET_FORMATS)
+
 
