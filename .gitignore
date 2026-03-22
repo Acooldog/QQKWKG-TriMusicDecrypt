@@ -22,3 +22,6 @@ output/
 *.exe
 A_kuwo.code-workspace
 用户反馈/
+
+# 保存加密变体的文件夹
+safeChange/
