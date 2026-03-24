@@ -11,6 +11,7 @@ class QQVariantAdaptResult:
     status: str
     staged_path: str
     mode: str
+    label: str
     message: str
     original_input_path: str
 
@@ -33,10 +34,12 @@ class QQVariantAdapterService:
         token = hashlib.md5(str(source).encode("utf-8")).hexdigest()
         staged_path = temp_root / f"qqsrc_{token}{source.suffix.lower()}"
         shutil.copy2(source, staged_path)
+        label = '路径敏感型 mflac 变体'
         return QQVariantAdaptResult(
             status="staged",
             staged_path=str(staged_path),
             mode="path_sensitive_mflac",
-            message="正在转换 QQ 路径敏感型 mflac 变体，准备旧链兼容输入",
+            label=label,
+            message=f"正在执行变体转换：{label}",
             original_input_path=str(source),
         )

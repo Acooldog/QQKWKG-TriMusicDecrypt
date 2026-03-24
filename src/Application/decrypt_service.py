@@ -490,7 +490,8 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
                             "total": _total,
                             "input_path": str(payload.get("input_path") or _path),
                             "variant_mode": str(payload.get("variant_mode") or "path_sensitive_mflac"),
-                            "message": str(payload.get("message") or "正在转换 QQ 路径敏感型 mflac 变体，准备旧链兼容输入"),
+                            "variant_label": str(payload.get("variant_label") or '路径敏感型 mflac 变体'),
+                            "message": str(payload.get("message") or f"正在执行变体转换：{str(payload.get('variant_label') or '路径敏感型 mflac 变体')}"),
                         },
                     )
                 decrypt_started = time.perf_counter()
