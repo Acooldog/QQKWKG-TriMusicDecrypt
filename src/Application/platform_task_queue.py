@@ -379,25 +379,26 @@ class PlatformTaskQueue:
                 task.current_file = str(payload.get("input_path", "") or "")
                 task.current_index = int(payload.get("index", 0) or 0)
                 task.current_total = int(payload.get("total", task.current_total) or task.current_total)
-                task.message = pathlib.Path(task.current_file).name if task.current_file else "处理中"
+                task.message = pathlib.Path(task.current_file).name if task.current_file else '处理中'
             elif event_name == "variant_started":
                 task.current_file = str(payload.get("input_path", "") or task.current_file)
                 task.current_index = int(payload.get("index", task.current_index) or task.current_index)
                 task.current_total = int(payload.get("total", task.current_total) or task.current_total)
-                task.message = str(payload.get("message", "") or "正在转换 QQ 路径敏感型 mflac 变体，准备旧链兼容输入")
+                variant_label = str(payload.get("variant_label", "") or '路径敏感型 mflac 变体')
+                task.message = str(payload.get("message", "") or f"正在执行变体转换：{variant_label}")
             elif event_name == "cover_started":
                 task.current_file = str(payload.get("output_path", "") or payload.get("input_path", "") or task.current_file)
                 task.current_index = int(payload.get("index", task.current_index) or task.current_index)
                 task.current_total = int(payload.get("total", task.current_total) or task.current_total)
                 task.message = str(payload.get("message", "") or "正在补封面（本地优先，可能会变慢）")
-            elif event_name == "cover_finished":
-                task.current_file = str(payload.get("output_path", "") or payload.get("input_path", "") or task.current_file)
-                task.message = self._cover_message(str(payload.get("status", "") or ""), payload)
             elif event_name == "metadata_started":
                 task.current_file = str(payload.get("output_path", "") or payload.get("input_path", "") or task.current_file)
                 task.current_index = int(payload.get("index", task.current_index) or task.current_index)
                 task.current_total = int(payload.get("total", task.current_total) or task.current_total)
                 task.message = str(payload.get("message", "") or "正在补专辑信息（本地优先，可能会变慢）")
+            elif event_name == "cover_finished":
+                task.current_file = str(payload.get("output_path", "") or payload.get("input_path", "") or task.current_file)
+                task.message = self._cover_message(str(payload.get("status", "") or ""), payload)
             elif event_name == "metadata_finished":
                 task.current_file = str(payload.get("output_path", "") or payload.get("input_path", "") or task.current_file)
                 task.message = self._metadata_message(str(payload.get("status", "") or ""), payload)

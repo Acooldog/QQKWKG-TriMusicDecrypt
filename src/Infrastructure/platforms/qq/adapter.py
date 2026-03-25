@@ -36,7 +36,7 @@ class QQPlatformAdapter:
         return self._variant_adapter
 
     @staticmethod
-    def _notify_variant_started(settings: dict, *, input_path: pathlib.Path, message: str, mode: str) -> None:
+    def _notify_variant_started(settings: dict, *, input_path: pathlib.Path, message: str, mode: str, label: str) -> None:
         notifier = settings.get('qq_variant_notifier')
         if not callable(notifier):
             return
@@ -44,6 +44,7 @@ class QQPlatformAdapter:
             notifier({
                 'input_path': str(input_path),
                 'variant_mode': mode,
+                'variant_label': label,
                 'message': message,
             })
         except Exception:
@@ -110,6 +111,7 @@ class QQPlatformAdapter:
                 input_path=input_path,
                 message=variant_result.message,
                 mode=variant_result.mode,
+                label=variant_result.label,
             )
             ok = self._gateway.decrypt_file(str(safe_source), str(safe_output))
         except Exception as exc:  # pragma: no cover - runtime-specific failure
