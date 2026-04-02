@@ -242,3 +242,4 @@ npm run package
 ## 重要说明
 本项目 `main-ui` 分支动态链接 `PySide6 / Qt` 运行库。用户可以自由替换对应共享库版本。
 
+![Star History Chart](https://api.star-history.com/svg?repos=Acooldog/QQKWKG-TriMusicDecrypt&type=Date)
