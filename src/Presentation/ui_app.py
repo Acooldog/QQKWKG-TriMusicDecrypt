@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import ctypes
+import json
 import pathlib
 import subprocess
 import sys
@@ -10,6 +11,7 @@ from typing import Any
 from PySide6.QtCore import QObject, QPoint, Qt, QTimer, Signal
 from PySide6.QtGui import QDesktopServices, QIcon, QMouseEvent, QWheelEvent
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QButtonGroup,
     QCheckBox,
@@ -18,6 +20,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
     QGridLayout,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -28,8 +31,11 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QScrollArea,
     QSizePolicy,
+    QSplitter,
     QTabBar,
     QTabWidget,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -68,6 +74,69 @@ DANGER = "#EF4444"
 FORMATS = ["auto"] + [item for item in supported_transcode_formats()
                       if item != "auto"]
 QQ_RULE_FORMATS = ["flac", "m4a", "mp3", "wav"]
+
+REASON_TRANSLATIONS: dict[str, tuple[str, str]] = {
+    "success": ("成功", "Success"),
+    "already_decrypted": ("已跳过，结果已存在", "Skipped because the output already exists"),
+    "stopped_by_user": ("用户已停止任务", "Stopped by user"),
+    "qq_decrypt_failed": ("QQ 旧链解密失败", "QQ legacy decrypt failed"),
+    "unrecognized_audio_container": ("输出不是可识别的音频容器", "Output is not a recognized audio container"),
+    "qq_internal_direct_timeout": ("QQ 新链直解超时", "QQ internal direct decrypt timed out"),
+    "qq_internal_direct_attach_failed": ("QQ 新链附加失败", "QQ internal direct attach failed"),
+    "qq_internal_direct_hook_error": ("QQ 新链 Hook 失败", "QQ internal direct hook failed"),
+    "qq_internal_direct_output_missing": ("QQ 新链未生成输出文件", "QQ internal direct output missing"),
+    "qq_export_flac_not_found": ("未找到 QQ 导出的 FLAC", "QQ exported FLAC not found"),
+    "target_process_not_detected": ("未检测到目标进程", "Target process was not detected"),
+    "unsupported_input": ("输入文件类型不受支持", "Unsupported input file type"),
+    "unknown_error": ("未知错误", "Unknown error"),
+}
+
+
+def _status_label(ok: bool, skipped: bool) -> str:
+    if skipped:
+        return "跳过"
+    if ok:
+        return "成功"
+    return "失败"
+
+
+def _translate_reason_segment(segment: str) -> tuple[str, str]:
+    text = str(segment or "").strip()
+    if not text:
+        return REASON_TRANSLATIONS["unknown_error"]
+    for code, (zh, en) in REASON_TRANSLATIONS.items():
+        if text == code:
+            return zh, en
+        if text.startswith(f"{code}:"):
+            tail = text.split(":", 1)[1].strip()
+            if tail:
+                return f"{zh}：{tail}", f"{en}: {tail}"
+            return zh, en
+    return f"未翻译原因：{text}", f"Untranslated reason: {text}"
+
+
+def _bilingual_reason(reason: str, *, ok: bool, skipped: bool) -> tuple[str, str]:
+    text = str(reason or "").strip()
+    if not text:
+        if skipped:
+            return REASON_TRANSLATIONS["already_decrypted"]
+        if ok:
+            return REASON_TRANSLATIONS["success"]
+        return REASON_TRANSLATIONS["unknown_error"]
+    zh_parts: list[str] = []
+    en_parts: list[str] = []
+    for raw_segment in text.split(";"):
+        segment = raw_segment.strip()
+        if not segment:
+            continue
+        zh, en = _translate_reason_segment(segment)
+        if zh not in zh_parts:
+            zh_parts.append(zh)
+        if en not in en_parts:
+            en_parts.append(en)
+    if not zh_parts:
+        return REASON_TRANSLATIONS["unknown_error"]
+    return "；".join(zh_parts), " ; ".join(en_parts)
 
 
 def is_running_as_admin() -> bool:
@@ -489,11 +558,19 @@ class PathField(QFrame):
 
 
 class BatchDetailDialog(QDialog):
-    def __init__(self, title: str, content: str, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        title: str,
+        *,
+        summary: dict[str, Any] | None = None,
+        rows: list[dict[str, Any]] | None = None,
+        fallback_text: str | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setModal(True)
-        self.resize(840, 620)
+        self.resize(980, 680)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -503,16 +580,95 @@ class BatchDetailDialog(QDialog):
         header.setObjectName("CardTitle")
         layout.addWidget(header)
 
-        self.editor = QPlainTextEdit()
-        self.editor.setObjectName("LogView")
-        self.editor.setReadOnly(True)
-        self.editor.setPlainText(content)
-        layout.addWidget(self.editor, 1)
+        summary = dict(summary or {})
+        rows = list(rows or [])
+        if rows:
+            summary_label = QLabel(
+                f"平台：{summary.get('platform_id', '未知')}    成功：{summary.get('success_count', 0)}    "
+                f"跳过：{summary.get('skipped_count', 0)}    失败：{summary.get('failed_count', 0)}"
+            )
+            summary_label.setObjectName("MutedText")
+            summary_label.setWordWrap(True)
+            layout.addWidget(summary_label)
+
+            splitter = QSplitter(Qt.Orientation.Vertical)
+            self.table = QTableWidget(len(rows), 4)
+            self.table.setHorizontalHeaderLabels(["状态", "输入文件", "输出文件", "原因摘要"])
+            self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+            self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+            self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+            self.table.setAlternatingRowColors(True)
+            self.table.verticalHeader().setVisible(False)
+            header_view = self.table.horizontalHeader()
+            header_view.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+            header_view.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+            header_view.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+            header_view.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+
+            for row_index, item in enumerate(rows):
+                status_text = str(item.get("status_text", "") or "")
+                input_name = str(item.get("input_name", "") or "")
+                output_name = str(item.get("output_name", "") or "")
+                reason_summary = str(item.get("reason_zh", "") or "")
+                cells = [
+                    QTableWidgetItem(status_text),
+                    QTableWidgetItem(input_name),
+                    QTableWidgetItem(output_name),
+                    QTableWidgetItem(reason_summary),
+                ]
+                for column, cell in enumerate(cells):
+                    cell.setData(Qt.ItemDataRole.UserRole, item)
+                    self.table.setItem(row_index, column, cell)
+
+            self.detail_view = QPlainTextEdit()
+            self.detail_view.setObjectName("LogView")
+            self.detail_view.setReadOnly(True)
+
+            splitter.addWidget(self.table)
+            splitter.addWidget(self.detail_view)
+            splitter.setStretchFactor(0, 3)
+            splitter.setStretchFactor(1, 2)
+            layout.addWidget(splitter, 1)
+
+            self.table.currentCellChanged.connect(self._show_row_detail)
+            self.table.cellDoubleClicked.connect(lambda *_: self._show_row_detail(self.table.currentRow(), 0, -1, -1))
+            if rows:
+                self.table.selectRow(0)
+                self._show_row_detail(0, 0, -1, -1)
+        else:
+            self.editor = QPlainTextEdit()
+            self.editor.setObjectName("LogView")
+            self.editor.setReadOnly(True)
+            self.editor.setPlainText(fallback_text or "暂无详情")
+            layout.addWidget(self.editor, 1)
 
         close_button = QPushButton("关闭")
         close_button.setObjectName("PrimaryButton")
         close_button.clicked.connect(self.accept)
         layout.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignRight)
+
+    def _show_row_detail(self, current_row: int, _current_column: int, _previous_row: int, _previous_column: int) -> None:
+        if current_row < 0 or not hasattr(self, "table") or not hasattr(self, "detail_view"):
+            return
+        cell = self.table.item(current_row, 0)
+        if cell is None:
+            return
+        item = dict(cell.data(Qt.ItemDataRole.UserRole) or {})
+        lines = [
+            f"状态：{item.get('status_text', '')}",
+            f"输入文件：{item.get('input_name', '')}",
+            f"输出文件：{item.get('output_name', '') or '无'}",
+            "",
+            "中文原因：",
+            str(item.get("reason_zh", "") or "无"),
+            "",
+            "English Reason:",
+            str(item.get("reason_en", "") or "N/A"),
+        ]
+        raw_reason = str(item.get("raw_reason", "") or "").strip()
+        if raw_reason:
+            lines.extend(["", "原始原因代码：", raw_reason])
+        self.detail_view.setPlainText("\n".join(lines))
 
 
 class PlatformCard(QFrame):
@@ -1367,11 +1523,17 @@ class MainWindow(QWidget):
         if card is None:
             return
         json_path_text, txt_path_text = card.detail_paths()
-        detail_text = self._build_detail_text(json_path_text, txt_path_text)
-        if detail_text is None:
+        detail_payload = self._build_detail_payload(json_path_text, txt_path_text)
+        if detail_payload is None:
             self._show_message("暂无详情", "当前平台还没有可查看的批次详情。")
             return
-        dialog = BatchDetailDialog(f"{self._platform_title(platform_id)} 批次详情", detail_text, self)
+        dialog = BatchDetailDialog(
+            f"{self._platform_title(platform_id)} 批次详情",
+            summary=detail_payload.get("summary"),
+            rows=detail_payload.get("rows"),
+            fallback_text=detail_payload.get("fallback_text"),
+            parent=self,
+        )
         dialog.exec()
 
     def _start_task_thread(self, target) -> None:
@@ -1466,7 +1628,7 @@ class MainWindow(QWidget):
         holder["remember_choice"] = remember_choice
         event.set()
 
-    def _build_detail_text(self, json_path_text: str, txt_path_text: str) -> str | None:
+    def _build_detail_payload(self, json_path_text: str, txt_path_text: str) -> dict[str, Any] | None:
         json_path = pathlib.Path(json_path_text) if json_path_text else pathlib.Path()
         txt_path = pathlib.Path(txt_path_text) if txt_path_text else pathlib.Path()
 
@@ -1475,47 +1637,36 @@ class MainWindow(QWidget):
                 payload = json.loads(json_path.read_text(encoding="utf-8"))
                 summary = dict(payload.get("summary", {}) or {})
                 results = list(payload.get("results", []) or [])
-                success_lines: list[str] = []
-                skipped_lines: list[str] = []
-                failed_lines: list[str] = []
+                rows: list[dict[str, Any]] = []
                 for item in results:
                     input_name = pathlib.Path(str(item.get("input_path", "") or "")).name or "未知文件"
                     output_name = pathlib.Path(str(item.get("output_path", "") or "")).name if item.get("output_path") else ""
                     reason = str(item.get("reason", "") or "").strip()
-                    if bool(item.get("skipped", False)):
-                        skipped_lines.append(f"- {input_name} -> {output_name or '已存在结果'}")
-                    elif bool(item.get("ok", False)):
-                        success_lines.append(f"- {input_name} -> {output_name or '已完成'}")
-                    else:
-                        failed_lines.append(f"- {input_name} | {reason or '未知错误'}")
-
-                lines = [
-                    f"平台：{summary.get('platform_id', '未知')}",
-                    f"输入：{summary.get('input_path', '')}",
-                    f"输出：{summary.get('output_dir', '')}",
-                    f"成功：{summary.get('success_count', 0)}",
-                    f"跳过：{summary.get('skipped_count', 0)}",
-                    f"失败：{summary.get('failed_count', 0)}",
-                    "",
-                    "成功文件：",
-                ]
-                lines.extend(success_lines or ["- 无"])
-                lines.extend(["", "跳过文件："])
-                lines.extend(skipped_lines or ["- 无"])
-                lines.extend(["", "失败文件："])
-                lines.extend(failed_lines or ["- 无"])
-                return "\n".join(lines)
+                    ok = bool(item.get("ok", False))
+                    skipped = bool(item.get("skipped", False))
+                    reason_zh, reason_en = _bilingual_reason(reason, ok=ok, skipped=skipped)
+                    rows.append(
+                        {
+                            "status_text": _status_label(ok, skipped),
+                            "input_name": input_name,
+                            "output_name": output_name or ("已存在结果" if skipped else "无"),
+                            "reason_zh": reason_zh,
+                            "reason_en": reason_en,
+                            "raw_reason": reason,
+                        }
+                    )
+                return {"summary": summary, "rows": rows, "fallback_text": None}
             except Exception:
                 pass
 
         if txt_path and txt_path.exists():
             try:
-                return txt_path.read_text(encoding="utf-8")
+                return {"summary": {}, "rows": [], "fallback_text": txt_path.read_text(encoding="utf-8")}
             except Exception:
                 try:
-                    return txt_path.read_text(encoding="utf-8-sig")
+                    return {"summary": {}, "rows": [], "fallback_text": txt_path.read_text(encoding="utf-8-sig")}
                 except Exception:
-                    return txt_path.read_text(errors="ignore")
+                    return {"summary": {}, "rows": [], "fallback_text": txt_path.read_text(errors="ignore")}
         return None
 
     def _handle_submission_result(self, payload: object) -> None:
@@ -1574,9 +1725,14 @@ class MainWindow(QWidget):
             f"并发上限 2 个平台任务。当前运行/等待：{running}，排队：{queued}。持续解密会按 FIFO 队列循环重扫。")
 
     def _append_log(self, message: str) -> None:
+        scrollbar = self.log_view.verticalScrollBar()
+        previous_value = scrollbar.value()
+        was_at_bottom = previous_value >= max(0, scrollbar.maximum() - 4)
         self.log_view.appendPlainText(message)
-        self.log_view.verticalScrollBar().setValue(
-            self.log_view.verticalScrollBar().maximum())
+        if was_at_bottom:
+            scrollbar.setValue(scrollbar.maximum())
+        else:
+            scrollbar.setValue(min(previous_value, scrollbar.maximum()))
 
     def _show_message(self, title: str, message: str) -> None:
         QMessageBox.information(self, title, message)
