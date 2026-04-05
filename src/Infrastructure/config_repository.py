@@ -117,6 +117,7 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
             "process_match": "qqmusic",
             "embed_cover_art": True,
             "format_rules": {"mflac": "flac", "mgg": "m4a", "mmp4": "m4a"},
+            "auto_transcode_after_decode": False,
         },
         "kuwo": {
             "input_dir": str(DEFAULT_KUWO_INPUT),
@@ -125,6 +126,7 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
             "exe_path": "",
             "signature_file": str(default_kuwo_signature_path(paths)),
             "format_kwm": "auto",
+            "auto_transcode_after_decode": False,
         },
         "kugou": {
             "input_dir": str(DEFAULT_KUGOU_INPUT),
@@ -133,11 +135,13 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
             "key_file": str(auto_find_kugou_key(paths) or (paths.assets_dir / "kugou_key.xz")),
             "target_format_kgma": "auto",
             "target_format_kgg": "auto",
+            "auto_transcode_after_decode": False,
         },
         "netease": {
             "input_dir": str(DEFAULT_NETEASE_INPUT),
             "output_dir": str(paths.output_dir / "netease"),
             "target_format_ncm": "auto",
+            "auto_transcode_after_decode": False,
         },
     }
     for section in ("shared", "qq", "kuwo", "kugou", "netease"):
@@ -199,6 +203,13 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
     config["qq"]["format_rules"] = format_rules
     config["shared"]["cli_collision_policy"] = str(config["shared"].get("cli_collision_policy", "suffix") or "suffix").lower()
     config["shared"]["recursive"] = bool(config["shared"].get("recursive", True))
+    for platform_id in ("qq", "kuwo", "kugou", "netease"):
+        auto_transcode = config[platform_id].get("auto_transcode_after_decode", False)
+        if isinstance(auto_transcode, str):
+            auto_transcode = auto_transcode.strip().lower() in {"1", "true", "yes", "y", "on"}
+        else:
+            auto_transcode = bool(auto_transcode)
+        config[platform_id]["auto_transcode_after_decode"] = auto_transcode
     config["kuwo"]["format_kwm"] = normalize_target_format(config["kuwo"].get("format_kwm", "auto"))
     config["kugou"]["target_format_kgma"] = normalize_target_format(config["kugou"].get("target_format_kgma", "auto"))
     config["kugou"]["target_format_kgg"] = normalize_target_format(config["kugou"].get("target_format_kgg", "auto"))

@@ -5,6 +5,7 @@ import ctypes
 import json
 import pathlib
 import sys
+from typing import Any, Callable
 
 from src.Application.decrypt_service import run_batch
 from src.Application.models import BatchRunConfig
@@ -102,6 +103,39 @@ def collision_prompt(base_name: str, extension: str, existing_platform: str | No
     return {"1": "suffix", "2": "subdir", "3": "overwrite"}.get(value, "suffix")
 
 
+def build_transcode_confirmation_resolver(
+    *,
+    paths: RuntimePaths,
+    config: dict[str, Any],
+    platform_id: str,
+    enabled: bool,
+) -> Callable[[dict[str, Any]], tuple[bool, bool]] | None:
+    if not enabled:
+        return None
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        return None
+
+    def _resolver(payload: dict[str, Any]) -> tuple[bool, bool]:
+        pending_count = int(payload.get("pending_count", 0) or 0)
+        ready_count = int(payload.get("ready_count", 0) or 0)
+        title = PLATFORM_LABELS.get(platform_id, platform_id)
+        print(f"{title} 已完成解密：共 {ready_count} 个文件，其中 {pending_count} 个需要按当前设置转码。")
+        should_transcode = prompt_bool("是否现在统一转码", True)
+        remember_choice = False
+        if should_transcode:
+            remember_choice = prompt_bool(
+                "下次该平台解密完成后是否直接转码且不再提醒",
+                bool(config.get(platform_id, {}).get("auto_transcode_after_decode", False)),
+            )
+            if remember_choice != bool(config.get(platform_id, {}).get("auto_transcode_after_decode", False)):
+                config[platform_id]["auto_transcode_after_decode"] = remember_choice
+                root, _ = load_config(paths)
+                save_config(paths, root, config)
+        return should_transcode, remember_choice
+
+    return _resolver
+
+
 def _ensure_running_for_interactive(platform_id: str, adapter, settings: dict) -> tuple[bool, str | None]:
     ok, reason = adapter.validate_runtime(settings)
     if ok:
@@ -190,6 +224,12 @@ def _run_platform(platform_id: str, config: dict, *, input_override: str | None 
         settings=settings,
         interactive=interactive,
         collision_resolver=collision_prompt if interactive else None,
+        transcode_confirmation_resolver=build_transcode_confirmation_resolver(
+            paths=paths,
+            config=config,
+            platform_id=platform_id,
+            enabled=bool(shared.get("transcode_enabled", True)),
+        ),
     )
     config["shared"]["output_dir"] = str(output_dir)
     config["shared"]["recursive"] = recursive
