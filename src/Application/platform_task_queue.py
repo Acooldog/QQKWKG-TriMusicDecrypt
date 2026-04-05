@@ -16,6 +16,7 @@ TaskStarter = Callable[[Callable[[], None]], None]
 StateSink = Callable[[list[dict[str, Any]]], None]
 LogSink = Callable[[str], None]
 CollisionResolver = Callable[[str, str, str | None], str]
+TranscodeConfirmationResolver = Callable[[str, dict[str, Any]], tuple[bool, bool] | None]
 
 
 def _friendly_failure_reason(reason: str) -> str:
@@ -117,12 +118,14 @@ class PlatformTaskQueue:
         state_sink: StateSink,
         log_sink: LogSink,
         collision_resolver: CollisionResolver,
+        transcode_confirmation_resolver: TranscodeConfirmationResolver,
         max_running: int = 2,
     ) -> None:
         self._task_starter = task_starter
         self._state_sink = state_sink
         self._log_sink = log_sink
         self._collision_resolver = collision_resolver
+        self._transcode_confirmation_resolver = transcode_confirmation_resolver
         self._max_running = max_running
         self._lock = threading.RLock()
         self._tasks: dict[str, PlatformTaskState] = {}
@@ -259,6 +262,7 @@ class PlatformTaskQueue:
                 settings=dict(task.settings),
                 interactive=True,
                 collision_resolver=self._collision_resolver,
+                transcode_confirmation_resolver=lambda payload: self._transcode_confirmation_resolver(platform_id, payload),
                 event_sink=lambda event_name, payload: self._handle_event(platform_id, event_name, payload),
                 stop_requested=lambda: self._is_stop_requested(platform_id),
             )
@@ -386,6 +390,31 @@ class PlatformTaskQueue:
                 task.current_total = int(payload.get("total", task.current_total) or task.current_total)
                 variant_label = str(payload.get("variant_label", "") or '路径敏感型 mflac 变体')
                 task.message = str(payload.get("message", "") or f"正在执行变体转换：{variant_label}")
+            elif event_name == "file_decrypted":
+                task.current_file = str(payload.get("working_path", "") or payload.get("input_path", "") or task.current_file)
+                task.current_index = int(payload.get("index", task.current_index) or task.current_index)
+                task.current_total = int(payload.get("total", task.current_total) or task.current_total)
+                if bool(payload.get("needs_transcode", False)):
+                    task.message = "解码完成，等待统一转码确认"
+                else:
+                    task.message = "解码完成，准备直接发布"
+            elif event_name == "batch_decode_finished":
+                pending_count = int(payload.get("pending_count", 0) or 0)
+                task.message = f"全部解码完成，待确认 {pending_count} 个文件是否统一转码"
+            elif event_name == "batch_transcode_confirmation_needed":
+                pending_count = int(payload.get("pending_count", 0) or 0)
+                task.message = f"等待确认是否统一转码（{pending_count} 个文件）"
+            elif event_name == "batch_transcode_decided":
+                should_transcode = bool(payload.get("should_transcode", False))
+                task.message = "已确认统一转码" if should_transcode else "已跳过统一转码，直接输出解码结果"
+            elif event_name == "batch_transcode_started":
+                pending_count = int(payload.get("pending_count", 0) or 0)
+                task.message = f"开始统一转码（{pending_count} 个文件）"
+            elif event_name == "batch_transcode_progress":
+                task.current_file = str(payload.get("output_path", "") or payload.get("input_path", "") or task.current_file)
+                task.current_index = int(payload.get("index", task.current_index) or task.current_index)
+                task.current_total = int(payload.get("total", task.current_total) or task.current_total)
+                task.message = str(payload.get("message", "") or "正在统一转码")
             elif event_name == "cover_started":
                 task.current_file = str(payload.get("output_path", "") or payload.get("input_path", "") or task.current_file)
                 task.current_index = int(payload.get("index", task.current_index) or task.current_index)

@@ -213,6 +213,7 @@ class UiBridge(QObject):
     log_line = Signal(str)
     collision_request = Signal(object)
     runtime_prompt_request = Signal(object)
+    transcode_confirmation_request = Signal(object)
     submission_result = Signal(object)
 
 
@@ -705,6 +706,7 @@ class MainWindow(QWidget):
             state_sink=lambda states: self.bridge.states_changed.emit(states),
             log_sink=lambda line: self.bridge.log_line.emit(line),
             collision_resolver=self._resolve_collision,
+            transcode_confirmation_resolver=self._resolve_transcode_confirmation,
             max_running=2,
         )
         self._submission_inflight: set[str] = set()
@@ -1011,6 +1013,7 @@ class MainWindow(QWidget):
         self.bridge.collision_request.connect(self._handle_collision_request)
         self.bridge.runtime_prompt_request.connect(
             self._handle_runtime_prompt_request)
+        self.bridge.transcode_confirmation_request.connect(self._handle_transcode_confirmation_request)
         self.bridge.submission_result.connect(self._handle_submission_result)
 
     def _platform_title(self, platform_id: str) -> str:
@@ -1098,6 +1101,7 @@ class MainWindow(QWidget):
             "input_dir": self._cards["qq"].input_field.text(),
             "process_match": "qqmusic",
             "output_dir": self._cards["qq"].extra_field("output_dir").text(),
+            "auto_transcode_after_decode": bool(self.config.get("qq", {}).get("auto_transcode_after_decode", False)),
             "format_rules": {
                 "mflac": self._cards["qq"].format_value("mflac"),
                 "mgg": self._cards["qq"].format_value("mgg"),
@@ -1111,6 +1115,7 @@ class MainWindow(QWidget):
             "exe_path": self._cards["kuwo"].extra_field("exe_path").text(),
             "signature_file": self._cards["kuwo"].extra_field("signature_file").text(),
             "format_kwm": self._cards["kuwo"].format_value("format_kwm"),
+            "auto_transcode_after_decode": bool(self.config.get("kuwo", {}).get("auto_transcode_after_decode", False)),
         }
         kugou = {
             "input_dir": self._cards["kugou"].input_field.text(),
@@ -1119,11 +1124,13 @@ class MainWindow(QWidget):
             "key_file": self._cards["kugou"].extra_field("key_file").text(),
             "target_format_kgma": self._cards["kugou"].format_value("target_format_kgma"),
             "target_format_kgg": self._cards["kugou"].format_value("target_format_kgg"),
+            "auto_transcode_after_decode": bool(self.config.get("kugou", {}).get("auto_transcode_after_decode", False)),
         }
         netease = {
             "input_dir": self._cards["netease"].input_field.text(),
             "output_dir": self._cards["netease"].extra_field("output_dir").text(),
             "target_format_ncm": self._cards["netease"].format_value("target_format_ncm"),
+            "auto_transcode_after_decode": bool(self.config.get("netease", {}).get("auto_transcode_after_decode", False)),
         }
         self.config = {"shared": shared, "qq": qq,
                        "kuwo": kuwo, "kugou": kugou, "netease": netease}
@@ -1324,6 +1331,13 @@ class MainWindow(QWidget):
         event.wait()
         return holder["choice"]
 
+    def _resolve_transcode_confirmation(self, platform_id: str, payload: dict[str, Any]) -> tuple[bool, bool] | None:
+        event = threading.Event()
+        holder: dict[str, Any] = {"should_transcode": False, "remember_choice": False}
+        self.bridge.transcode_confirmation_request.emit((event, holder, platform_id, dict(payload)))
+        event.wait()
+        return bool(holder.get("should_transcode", False)), bool(holder.get("remember_choice", False))
+
     def _handle_collision_request(self, payload: object) -> None:
         event, holder, base_name, extension, existing_platform = payload
         text = f"共享输出目录中已存在同名文件：{base_name}.{extension}\n现有平台：{existing_platform or '未知'}\n请选择处理方式。"
@@ -1354,6 +1368,33 @@ class MainWindow(QWidget):
             QMessageBox.StandardButton.Yes,
         )
         holder["accepted"] = choice == QMessageBox.StandardButton.Yes
+        event.set()
+
+    def _handle_transcode_confirmation_request(self, payload: object) -> None:
+        event, holder, platform_id, data = payload
+        platform_title = self._platform_title(str(platform_id))
+        ready_count = int(data.get("ready_count", 0) or 0)
+        pending_count = int(data.get("pending_count", 0) or 0)
+        checkbox = QCheckBox("下次该平台解码完成后直接转码，不再提醒")
+        checkbox.setChecked(bool(self.config.get(str(platform_id), {}).get("auto_transcode_after_decode", False)))
+        box = QMessageBox(self)
+        box.setWindowTitle(f"{platform_title} 解码完成")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText(f"{platform_title} 已完成解码。")
+        box.setInformativeText(
+            f"共 {ready_count} 个文件完成解码，其中 {pending_count} 个文件需要按当前设置统一转码。是否现在开始转码？"
+        )
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        box.setDefaultButton(QMessageBox.StandardButton.Yes)
+        box.setCheckBox(checkbox)
+        choice = box.exec()
+        should_transcode = choice == QMessageBox.StandardButton.Yes
+        remember_choice = should_transcode and checkbox.isChecked()
+        if bool(self.config.get(str(platform_id), {}).get("auto_transcode_after_decode", False)) != remember_choice:
+            self.config[str(platform_id)]["auto_transcode_after_decode"] = remember_choice
+            save_config(self.paths, self.root_config, self.config)
+        holder["should_transcode"] = should_transcode
+        holder["remember_choice"] = remember_choice
         event.set()
 
     def _handle_submission_result(self, payload: object) -> None:
