@@ -1430,20 +1430,34 @@ class MainWindow(QWidget):
         platform_title = self._platform_title(str(platform_id))
         ready_count = int(data.get("ready_count", 0) or 0)
         pending_count = int(data.get("pending_count", 0) or 0)
+        transcode_enabled_setting = bool(data.get("transcode_enabled_setting", True))
         checkbox = QCheckBox("下次该平台解码完成后直接转码，不再提醒")
         checkbox.setChecked(bool(self.config.get(str(platform_id), {}).get("auto_transcode_after_decode", False)))
         box = QMessageBox(self)
         box.setWindowTitle(f"{platform_title} 解码完成")
-        box.setIcon(QMessageBox.Icon.Question)
+        box.setIcon(QMessageBox.Icon.Question if pending_count > 0 else QMessageBox.Icon.Information)
         box.setText(f"{platform_title} 已完成解码。")
-        box.setInformativeText(
-            f"共 {ready_count} 个文件完成解码，其中 {pending_count} 个文件需要按当前设置统一转码。是否现在开始转码？"
-        )
-        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        box.setDefaultButton(QMessageBox.StandardButton.Yes)
-        box.setCheckBox(checkbox)
+        if pending_count > 0:
+            box.setInformativeText(
+                f"共 {ready_count} 个文件完成解码，其中 {pending_count} 个文件需要按当前设置统一转码。是否现在开始转码？"
+            )
+            box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            box.setDefaultButton(QMessageBox.StandardButton.Yes)
+            box.setCheckBox(checkbox)
+        else:
+            if transcode_enabled_setting:
+                box.setInformativeText(
+                    f"共 {ready_count} 个文件完成解码。当前批次无需转码，解码结果将直接输出。"
+                )
+            else:
+                box.setInformativeText(
+                    f"共 {ready_count} 个文件完成解码。当前处于仅解码模式，本批不会转码。"
+                )
+            checkbox.setEnabled(False)
+            box.setStandardButtons(QMessageBox.StandardButton.Ok)
+            box.setDefaultButton(QMessageBox.StandardButton.Ok)
         choice = box.exec()
-        should_transcode = choice == QMessageBox.StandardButton.Yes
+        should_transcode = pending_count > 0 and choice == QMessageBox.StandardButton.Yes
         remember_choice = should_transcode and checkbox.isChecked()
         if bool(self.config.get(str(platform_id), {}).get("auto_transcode_after_decode", False)) != remember_choice:
             self.config[str(platform_id)]["auto_transcode_after_decode"] = remember_choice
