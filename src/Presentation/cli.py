@@ -108,10 +108,7 @@ def build_transcode_confirmation_resolver(
     paths: RuntimePaths,
     config: dict[str, Any],
     platform_id: str,
-    enabled: bool,
 ) -> Callable[[dict[str, Any]], tuple[bool, bool]] | None:
-    if not enabled:
-        return None
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         return None
 
@@ -119,6 +116,17 @@ def build_transcode_confirmation_resolver(
         pending_count = int(payload.get("pending_count", 0) or 0)
         ready_count = int(payload.get("ready_count", 0) or 0)
         title = PLATFORM_LABELS.get(platform_id, platform_id)
+        transcode_enabled_setting = bool(payload.get("transcode_enabled_setting", True))
+        if pending_count <= 0:
+            if transcode_enabled_setting:
+                print(f"{title} 已完成解密：共 {ready_count} 个文件，当前批次无需转码，将直接输出解码结果。")
+            else:
+                print(f"{title} 已完成解密：共 {ready_count} 个文件，当前处于仅解码模式，本批不会转码。")
+            try:
+                input("按回车继续...")
+            except EOFError:
+                pass
+            return False, False
         print(f"{title} 已完成解密：共 {ready_count} 个文件，其中 {pending_count} 个需要按当前设置转码。")
         should_transcode = prompt_bool("是否现在统一转码", True)
         remember_choice = False
@@ -228,7 +236,6 @@ def _run_platform(platform_id: str, config: dict, *, input_override: str | None 
             paths=paths,
             config=config,
             platform_id=platform_id,
-            enabled=bool(shared.get("transcode_enabled", True)),
         ),
     )
     config["shared"]["output_dir"] = str(output_dir)

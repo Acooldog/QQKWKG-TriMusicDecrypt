@@ -413,10 +413,6 @@ def _resolve_batch_transcode_choice(
     stopped_early: bool,
 ) -> tuple[bool, list[_PreparedArtifact]]:
     pending = [item for item in prepared_artifacts if _artifact_needs_transcode(item.desired_target, item.detected_container)]
-    if not _transcode_enabled(config.settings):
-        return False, pending
-    if not pending:
-        return False, pending
     if failed_count > 0 or stopped_early:
         logger.info(
             "batch_transcode_skipped: pending=%d failed=%d stopped=%s",
@@ -430,6 +426,8 @@ def _resolve_batch_transcode_choice(
         "platform_id": config.platform_id,
         "ready_count": len(prepared_artifacts),
         "pending_count": len(pending),
+        "has_pending_transcode": bool(pending),
+        "transcode_enabled_setting": _transcode_enabled(config.settings),
         "pending_files": [item.input_path.name for item in pending],
         "pending_targets": [
             {
@@ -441,7 +439,7 @@ def _resolve_batch_transcode_choice(
         ],
     }
     _emit_event(config, "batch_decode_finished", dict(payload))
-    if _auto_transcode_after_decode(config.settings):
+    if pending and _auto_transcode_after_decode(config.settings):
         logger.info("batch_transcode_auto_enabled: pending=%d", len(pending))
         _emit_event(
             config,
@@ -472,7 +470,7 @@ def _resolve_batch_transcode_choice(
 
     _emit_event(config, "batch_transcode_confirmation_needed", dict(payload))
     response = resolver(dict(payload))
-    should_transcode = bool(response[0]) if response else False
+    should_transcode = bool(response[0]) if response and pending else False
     remember_choice = bool(response[1]) if response else False
     logger.info(
         "batch_transcode_prompt_result: pending=%d should_transcode=%s remember=%s",
