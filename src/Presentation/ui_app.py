@@ -488,9 +488,37 @@ class PathField(QFrame):
         self.edit.setText(value)
 
 
+class BatchDetailDialog(QDialog):
+    def __init__(self, title: str, content: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setModal(True)
+        self.resize(840, 620)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        header = QLabel(title)
+        header.setObjectName("CardTitle")
+        layout.addWidget(header)
+
+        self.editor = QPlainTextEdit()
+        self.editor.setObjectName("LogView")
+        self.editor.setReadOnly(True)
+        self.editor.setPlainText(content)
+        layout.addWidget(self.editor, 1)
+
+        close_button = QPushButton("关闭")
+        close_button.setObjectName("PrimaryButton")
+        close_button.clicked.connect(self.accept)
+        layout.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignRight)
+
+
 class PlatformCard(QFrame):
     run_requested = Signal(str)
     stop_requested = Signal(str)
+    detail_requested = Signal(str)
 
     def __init__(self, platform_id: str, title: str, subtitle: str) -> None:
         super().__init__()
@@ -502,6 +530,8 @@ class PlatformCard(QFrame):
         self._format_widgets: dict[str, QComboBox] = {}
         self._extra_fields: dict[str, PathField] = {}
         self._radio_groups: dict[str, tuple[QButtonGroup, dict[str, QRadioButton]]] = {}
+        self._batch_report_json = ""
+        self._batch_report_txt = ""
 
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 18, 18, 18)
@@ -569,8 +599,14 @@ class PlatformCard(QFrame):
         self.stop_button.setEnabled(False)
         self.stop_button.clicked.connect(
             lambda: self.stop_requested.emit(self.platform_id))
+        self.detail_button = QPushButton("查看详情")
+        self.detail_button.setObjectName("SecondaryButton")
+        self.detail_button.setEnabled(False)
+        self.detail_button.clicked.connect(
+            lambda: self.detail_requested.emit(self.platform_id))
         button_row.addWidget(self.run_button, 1)
         button_row.addWidget(self.stop_button, 1)
+        button_row.addWidget(self.detail_button, 1)
         root.addLayout(button_row)
 
     def add_format_combo(self, key: str, label: str, values: list[str]) -> None:
@@ -650,6 +686,9 @@ class PlatformCard(QFrame):
         for combo in self._format_widgets.values():
             combo.setEnabled(enabled)
 
+    def detail_paths(self) -> tuple[str, str]:
+        return self._batch_report_json, self._batch_report_txt
+
     def apply_state(self, payload: dict[str, Any]) -> None:
         status = str(payload.get("status", "idle") or "idle")
         mapping = {
@@ -685,9 +724,12 @@ class PlatformCard(QFrame):
         failed_reason = str(payload.get("last_failed_reason", "") or "无")
         self.failed_file_label.setText(f"最近失败：{failed_file}")
         self.failed_reason_label.setText(f"失败原因：{failed_reason}")
+        self._batch_report_json = str(payload.get("batch_report_json", "") or "")
+        self._batch_report_txt = str(payload.get("batch_report_txt", "") or "")
         active = status in {"queued", "running", "waiting", "stopping"}
         self.run_button.setEnabled(not active)
         self.stop_button.setEnabled(active)
+        self.detail_button.setEnabled(bool(self._batch_report_json or self._batch_report_txt))
         self.continuous_checkbox.setEnabled(not active)
 
 
@@ -1000,6 +1042,7 @@ class MainWindow(QWidget):
                 lambda _=False, pid=platform_id: self._choose_path(self._cards[pid].extra_field("output_dir")))
             card.run_requested.connect(self._handle_platform_action)
             card.stop_requested.connect(self._handle_platform_stop)
+            card.detail_requested.connect(self._handle_platform_detail)
         self._cards["kuwo"].extra_field("exe_path").button.clicked.connect(lambda: self._choose_file(
             self._cards["kuwo"].extra_field("exe_path"), "选择酷我程序", "程序 (*.exe);;所有文件 (*.*)"))
         self._cards["kuwo"].extra_field("signature_file").button.clicked.connect(lambda: self._choose_file(
@@ -1319,6 +1362,18 @@ class MainWindow(QWidget):
             return
         self._append_log(f"[{title}] 已请求停止。")
 
+    def _handle_platform_detail(self, platform_id: str) -> None:
+        card = self._cards.get(platform_id)
+        if card is None:
+            return
+        json_path_text, txt_path_text = card.detail_paths()
+        detail_text = self._build_detail_text(json_path_text, txt_path_text)
+        if detail_text is None:
+            self._show_message("暂无详情", "当前平台还没有可查看的批次详情。")
+            return
+        dialog = BatchDetailDialog(f"{self._platform_title(platform_id)} 批次详情", detail_text, self)
+        dialog.exec()
+
     def _start_task_thread(self, target) -> None:
         thread = threading.Thread(target=target, daemon=True)
         thread.start()
@@ -1396,6 +1451,58 @@ class MainWindow(QWidget):
         holder["should_transcode"] = should_transcode
         holder["remember_choice"] = remember_choice
         event.set()
+
+    def _build_detail_text(self, json_path_text: str, txt_path_text: str) -> str | None:
+        json_path = pathlib.Path(json_path_text) if json_path_text else pathlib.Path()
+        txt_path = pathlib.Path(txt_path_text) if txt_path_text else pathlib.Path()
+
+        if json_path and json_path.exists():
+            try:
+                payload = json.loads(json_path.read_text(encoding="utf-8"))
+                summary = dict(payload.get("summary", {}) or {})
+                results = list(payload.get("results", []) or [])
+                success_lines: list[str] = []
+                skipped_lines: list[str] = []
+                failed_lines: list[str] = []
+                for item in results:
+                    input_name = pathlib.Path(str(item.get("input_path", "") or "")).name or "未知文件"
+                    output_name = pathlib.Path(str(item.get("output_path", "") or "")).name if item.get("output_path") else ""
+                    reason = str(item.get("reason", "") or "").strip()
+                    if bool(item.get("skipped", False)):
+                        skipped_lines.append(f"- {input_name} -> {output_name or '已存在结果'}")
+                    elif bool(item.get("ok", False)):
+                        success_lines.append(f"- {input_name} -> {output_name or '已完成'}")
+                    else:
+                        failed_lines.append(f"- {input_name} | {reason or '未知错误'}")
+
+                lines = [
+                    f"平台：{summary.get('platform_id', '未知')}",
+                    f"输入：{summary.get('input_path', '')}",
+                    f"输出：{summary.get('output_dir', '')}",
+                    f"成功：{summary.get('success_count', 0)}",
+                    f"跳过：{summary.get('skipped_count', 0)}",
+                    f"失败：{summary.get('failed_count', 0)}",
+                    "",
+                    "成功文件：",
+                ]
+                lines.extend(success_lines or ["- 无"])
+                lines.extend(["", "跳过文件："])
+                lines.extend(skipped_lines or ["- 无"])
+                lines.extend(["", "失败文件："])
+                lines.extend(failed_lines or ["- 无"])
+                return "\n".join(lines)
+            except Exception:
+                pass
+
+        if txt_path and txt_path.exists():
+            try:
+                return txt_path.read_text(encoding="utf-8")
+            except Exception:
+                try:
+                    return txt_path.read_text(encoding="utf-8-sig")
+                except Exception:
+                    return txt_path.read_text(errors="ignore")
+        return None
 
     def _handle_submission_result(self, payload: object) -> None:
         data = payload if isinstance(payload, dict) else {}
