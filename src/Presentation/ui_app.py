@@ -9,7 +9,7 @@ import threading
 from typing import Any
 
 from PySide6.QtCore import QObject, QPoint, Qt, QTimer, Signal
-from PySide6.QtGui import QDesktopServices, QIcon, QMouseEvent, QWheelEvent
+from PySide6.QtGui import QColor, QDesktopServices, QIcon, QMouseEvent, QWheelEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -610,6 +610,7 @@ class BatchDetailDialog(QDialog):
         summary = dict(summary or {})
         rows = list(rows or [])
         if rows:
+            self._all_rows = rows
             summary_label = QLabel(
                 f"平台：{summary.get('platform_id', '未知')}    成功：{summary.get('success_count', 0)}    "
                 f"跳过：{summary.get('skipped_count', 0)}    失败：{summary.get('failed_count', 0)}"
@@ -618,8 +619,29 @@ class BatchDetailDialog(QDialog):
             summary_label.setWordWrap(True)
             layout.addWidget(summary_label)
 
+            filter_row = QHBoxLayout()
+            filter_row.setContentsMargins(0, 0, 0, 0)
+            filter_row.setSpacing(12)
+            filter_label = QLabel("分组查看")
+            filter_label.setObjectName("FieldLabel")
+            filter_row.addWidget(filter_label)
+            self.filter_group = QButtonGroup(self)
+            self.filter_buttons: dict[str, QRadioButton] = {}
+            for value, text in (
+                ("all", "全部"),
+                ("success", "成功"),
+                ("skipped", "跳过"),
+                ("failed", "失败"),
+            ):
+                radio = QRadioButton(text)
+                self.filter_group.addButton(radio)
+                self.filter_buttons[value] = radio
+                filter_row.addWidget(radio)
+            filter_row.addStretch(1)
+            layout.addLayout(filter_row)
+
             splitter = QSplitter(Qt.Orientation.Vertical)
-            self.table = QTableWidget(len(rows), 4)
+            self.table = QTableWidget(0, 4)
             self.table.setHorizontalHeaderLabels(["状态", "输入文件", "输出文件", "原因摘要"])
             self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
             self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -659,9 +681,9 @@ class BatchDetailDialog(QDialog):
 
             self.table.currentCellChanged.connect(self._show_row_detail)
             self.table.cellDoubleClicked.connect(lambda *_: self._show_row_detail(self.table.currentRow(), 0, -1, -1))
-            if rows:
-                self.table.selectRow(0)
-                self._show_row_detail(0, 0, -1, -1)
+            for value, radio in self.filter_buttons.items():
+                radio.toggled.connect(lambda checked, mode=value: self._apply_filter(mode) if checked else None)
+            self.filter_buttons["all"].setChecked(True)
         else:
             self.editor = QPlainTextEdit()
             self.editor.setObjectName("LogView")
@@ -696,6 +718,43 @@ class BatchDetailDialog(QDialog):
         if raw_reason:
             lines.extend(["", "原始原因代码：", raw_reason])
         self.detail_view.setPlainText("\n".join(lines))
+
+    def _apply_filter(self, mode: str) -> None:
+        if not hasattr(self, "_all_rows"):
+            return
+        if mode == "success":
+            rows = [item for item in self._all_rows if item.get("status_text") == "成功"]
+        elif mode == "skipped":
+            rows = [item for item in self._all_rows if item.get("status_text") == "跳过"]
+        elif mode == "failed":
+            rows = [item for item in self._all_rows if item.get("status_text") == "失败"]
+        else:
+            rows = list(self._all_rows)
+        self._populate_rows(rows)
+
+    def _populate_rows(self, rows: list[dict[str, Any]]) -> None:
+        self.table.setRowCount(len(rows))
+        for row_index, item in enumerate(rows):
+            status_text = str(item.get("status_text", "") or "")
+            input_name = str(item.get("input_name", "") or "")
+            output_name = str(item.get("output_name", "") or "")
+            reason_summary = str(item.get("reason_zh", "") or "")
+            cells = [
+                QTableWidgetItem(status_text),
+                QTableWidgetItem(input_name),
+                QTableWidgetItem(output_name),
+                QTableWidgetItem(reason_summary),
+            ]
+            color = QColor("#60A5FA") if status_text in {"成功", "跳过"} else QColor("#F87171")
+            for column, cell in enumerate(cells):
+                cell.setData(Qt.ItemDataRole.UserRole, item)
+                cell.setForeground(color)
+                self.table.setItem(row_index, column, cell)
+        if rows:
+            self.table.selectRow(0)
+            self._show_row_detail(0, 0, -1, -1)
+        else:
+            self.detail_view.setPlainText("当前分组没有记录。")
 
 
 class UsageTipDetailDialog(QDialog):
@@ -842,6 +901,26 @@ class PlatformCard(QFrame):
         self.form_layout.setVerticalSpacing(12)
         root.addLayout(self.form_layout)
 
+        self.transcode_frame = QFrame()
+        self.transcode_frame.setObjectName("ConfigCard")
+        self.transcode_layout_root = QVBoxLayout(self.transcode_frame)
+        self.transcode_layout_root.setContentsMargins(14, 12, 14, 12)
+        self.transcode_layout_root.setSpacing(10)
+        self.transcode_title = QLabel("转码设置")
+        self.transcode_title.setObjectName("SectionTitle")
+        self.transcode_checkbox = QCheckBox("解密成功后进行转码")
+        self.transcode_hint = QLabel("勾选后解锁下方格式设置；不勾选时只输出解密后的原始格式。")
+        self.transcode_hint.setObjectName("MutedText")
+        self.transcode_hint.setWordWrap(True)
+        self.transcode_form_layout = QGridLayout()
+        self.transcode_form_layout.setHorizontalSpacing(12)
+        self.transcode_form_layout.setVerticalSpacing(10)
+        self.transcode_layout_root.addWidget(self.transcode_title)
+        self.transcode_layout_root.addWidget(self.transcode_checkbox)
+        self.transcode_layout_root.addWidget(self.transcode_hint)
+        self.transcode_layout_root.addLayout(self.transcode_form_layout)
+        root.addWidget(self.transcode_frame)
+
         status_box = QFrame()
         status_box.setObjectName("StatusBox")
         status_layout = QVBoxLayout(status_box)
@@ -893,14 +972,18 @@ class PlatformCard(QFrame):
         button_row.addWidget(self.stop_button, 1)
         button_row.addWidget(self.detail_button, 1)
         root.addLayout(button_row)
+        self.transcode_checkbox.toggled.connect(self._update_transcode_controls)
+        self._update_transcode_controls()
 
     def add_format_combo(self, key: str, label: str, values: list[str]) -> None:
         combo = GuardedComboBox()
         combo.addItems(values)
         combo.setObjectName("ComboBox")
-        row = self.form_layout.rowCount()
-        self.form_layout.addWidget(QLabel(label), row, 0)
-        self.form_layout.addWidget(combo, row, 1)
+        row = self.transcode_form_layout.rowCount()
+        label_widget = QLabel(label)
+        label_widget.setObjectName("FieldLabel")
+        self.transcode_form_layout.addWidget(label_widget, row, 0)
+        self.transcode_form_layout.addWidget(combo, row, 1)
         self._format_widgets[key] = combo
 
     def add_extra_field(self, key: str, label: str, *, directory: bool) -> PathField:
@@ -970,6 +1053,21 @@ class PlatformCard(QFrame):
     def set_formats_enabled(self, enabled: bool) -> None:
         for combo in self._format_widgets.values():
             combo.setEnabled(enabled)
+
+    def set_transcode_enabled(self, enabled: bool) -> None:
+        self.transcode_checkbox.setChecked(bool(enabled))
+        self._update_transcode_controls()
+
+    def transcode_enabled(self) -> bool:
+        return self.transcode_checkbox.isChecked()
+
+    def _update_transcode_controls(self) -> None:
+        enabled = self.transcode_checkbox.isChecked()
+        self.set_formats_enabled(enabled)
+        if enabled:
+            self.transcode_hint.setText("已启用转码。解密成功后会按下方格式设置统一转码。")
+        else:
+            self.transcode_hint.setText("未启用转码。当前平台只输出解密后的原始格式。")
 
     def detail_paths(self) -> tuple[str, str]:
         return self._batch_report_json, self._batch_report_txt
@@ -1136,17 +1234,6 @@ class MainWindow(QWidget):
         self.cover_note.setObjectName("MutedText")
         self.cover_note.setWordWrap(True)
 
-        self.transcode_mode_group = QButtonGroup(shared_card)
-        self.transcode_enable_radio = QRadioButton("转码为目标格式")
-        self.transcode_disable_radio = QRadioButton("仅解密，不转码")
-        self.transcode_mode_group.addButton(self.transcode_enable_radio)
-        self.transcode_mode_group.addButton(self.transcode_disable_radio)
-        self.transcode_note = QLabel(
-            "提示：关闭转码后，QQ / 酷我 / 酷狗会直接输出解密后的原始音频格式，通常更快；平台格式下拉会暂时失效。"
-        )
-        self.transcode_note.setObjectName("MutedText")
-        self.transcode_note.setWordWrap(True)
-
         self.album_mode_group = QButtonGroup(shared_card)
         self.album_enable_radio = QRadioButton("补充专辑信息")
         self.album_disable_radio = QRadioButton("不补充专辑信息")
@@ -1179,16 +1266,6 @@ class MainWindow(QWidget):
         cover_row.addWidget(self.cover_disable_radio)
         cover_row.addStretch(1)
 
-        transcode_row = QHBoxLayout()
-        transcode_row.setContentsMargins(0, 0, 0, 0)
-        transcode_row.setSpacing(14)
-        transcode_label = QLabel("输出处理")
-        transcode_label.setObjectName("FieldLabel")
-        transcode_row.addWidget(transcode_label)
-        transcode_row.addWidget(self.transcode_enable_radio)
-        transcode_row.addWidget(self.transcode_disable_radio)
-        transcode_row.addStretch(1)
-
         album_row = QHBoxLayout()
         album_row.setContentsMargins(0, 0, 0, 0)
         album_row.setSpacing(14)
@@ -1216,8 +1293,6 @@ class MainWindow(QWidget):
         shared_layout.addWidget(self.output_mode_note)
         shared_layout.addWidget(self.output_field)
         shared_layout.addWidget(self.recursive_checkbox)
-        shared_layout.addLayout(transcode_row)
-        shared_layout.addWidget(self.transcode_note)
         shared_layout.addLayout(cover_row)
         shared_layout.addWidget(self.cover_note)
         shared_layout.addLayout(album_row)
@@ -1315,8 +1390,6 @@ class MainWindow(QWidget):
             lambda: self._choose_path(self.output_field))
         self.output_mode_shared_radio.toggled.connect(self._update_output_mode_widgets)
         self.output_mode_platform_radio.toggled.connect(self._update_output_mode_widgets)
-        self.transcode_enable_radio.toggled.connect(self._update_transcode_widgets)
-        self.transcode_disable_radio.toggled.connect(self._update_transcode_widgets)
         self.save_button.clicked.connect(self._save_config_from_widgets)
         self.reload_button.clicked.connect(self._reload_config)
         self.open_output_button.clicked.connect(self._open_output_dir)
@@ -1359,10 +1432,6 @@ class MainWindow(QWidget):
             str(shared.get("output_dir", self.paths.output_dir)))
         self.recursive_checkbox.setChecked(bool(shared.get("recursive", True)))
         self._update_output_mode_widgets()
-        if bool(shared.get("transcode_enabled", True)):
-            self.transcode_enable_radio.setChecked(True)
-        else:
-            self.transcode_disable_radio.setChecked(True)
         if bool(shared.get("embed_cover_art", True)):
             self.cover_enable_radio.setChecked(True)
         else:
@@ -1380,11 +1449,13 @@ class MainWindow(QWidget):
             (qq.get("format_rules") or {}).get("mgg", "m4a")))
         self._cards["qq"].set_format_value("mmp4", str(
             (qq.get("format_rules") or {}).get("mmp4", "m4a")))
+        self._cards["qq"].set_transcode_enabled(bool(qq.get("transcode_enabled", True)))
         kuwo = self.config["kuwo"]
         self._cards["qq"].extra_field("output_dir").setText(str(qq.get("output_dir", pathlib.Path(self.paths.output_dir) / "qq")))
         self._cards["kuwo"].input_field.setText(str(kuwo.get("input_dir", "")))
         self._cards["kuwo"].set_format_value(
             "format_kwm", str(kuwo.get("format_kwm", "auto")))
+        self._cards["kuwo"].set_transcode_enabled(bool(kuwo.get("transcode_enabled", True)))
         self._cards["kuwo"].extra_field("exe_path").setText(
             str(kuwo.get("exe_path", "")))
         self._cards["kuwo"].extra_field("signature_file").setText(
@@ -1399,6 +1470,7 @@ class MainWindow(QWidget):
             "target_format_kgma", str(kugou.get("target_format_kgma", "auto")))
         self._cards["kugou"].set_format_value(
             "target_format_kgg", str(kugou.get("target_format_kgg", "auto")))
+        self._cards["kugou"].set_transcode_enabled(bool(kugou.get("transcode_enabled", True)))
         self._cards["kugou"].extra_field("key_file").setText(
             str(kugou.get("key_file", "")))
         self._cards["kugou"].extra_field("kgg_db_path").setText(
@@ -1410,10 +1482,10 @@ class MainWindow(QWidget):
             str(netease.get("input_dir", "")))
         self._cards["netease"].set_format_value(
             "target_format_ncm", str(netease.get("target_format_ncm", "auto")))
+        self._cards["netease"].set_transcode_enabled(bool(netease.get("transcode_enabled", True)))
 
         self._cards["netease"].extra_field("output_dir").setText(
             str(netease.get("output_dir", pathlib.Path(self.paths.output_dir) / "netease")))
-        self._update_transcode_widgets()
 
     def _save_config_from_widgets(self, *, announce: bool = True) -> None:
         shared = {
@@ -1421,7 +1493,7 @@ class MainWindow(QWidget):
             "output_dir": self.output_field.text() or str(self.paths.output_dir),
             "cli_collision_policy": "suffix",
             "recursive": self.recursive_checkbox.isChecked(),
-            "transcode_enabled": self.transcode_enable_radio.isChecked(),
+            "transcode_enabled": any(card.transcode_enabled() for card in self._cards.values()),
             "embed_cover_art": self.cover_enable_radio.isChecked(),
             "supplement_album_metadata": self.album_enable_radio.isChecked(),
         }
@@ -1429,6 +1501,7 @@ class MainWindow(QWidget):
             "input_dir": self._cards["qq"].input_field.text(),
             "process_match": "qqmusic",
             "output_dir": self._cards["qq"].extra_field("output_dir").text(),
+            "transcode_enabled": self._cards["qq"].transcode_enabled(),
             "auto_transcode_after_decode": bool(self.config.get("qq", {}).get("auto_transcode_after_decode", False)),
             "format_rules": {
                 "mflac": self._cards["qq"].format_value("mflac"),
@@ -1442,6 +1515,7 @@ class MainWindow(QWidget):
             "output_dir": self._cards["kuwo"].extra_field("output_dir").text(),
             "exe_path": self._cards["kuwo"].extra_field("exe_path").text(),
             "signature_file": self._cards["kuwo"].extra_field("signature_file").text(),
+            "transcode_enabled": self._cards["kuwo"].transcode_enabled(),
             "format_kwm": self._cards["kuwo"].format_value("format_kwm"),
             "auto_transcode_after_decode": bool(self.config.get("kuwo", {}).get("auto_transcode_after_decode", False)),
         }
@@ -1450,6 +1524,7 @@ class MainWindow(QWidget):
             "output_dir": self._cards["kugou"].extra_field("output_dir").text(),
             "kgg_db_path": self._cards["kugou"].extra_field("kgg_db_path").text(),
             "key_file": self._cards["kugou"].extra_field("key_file").text(),
+            "transcode_enabled": self._cards["kugou"].transcode_enabled(),
             "target_format_kgma": self._cards["kugou"].format_value("target_format_kgma"),
             "target_format_kgg": self._cards["kugou"].format_value("target_format_kgg"),
             "auto_transcode_after_decode": bool(self.config.get("kugou", {}).get("auto_transcode_after_decode", False)),
@@ -1457,6 +1532,7 @@ class MainWindow(QWidget):
         netease = {
             "input_dir": self._cards["netease"].input_field.text(),
             "output_dir": self._cards["netease"].extra_field("output_dir").text(),
+            "transcode_enabled": self._cards["netease"].transcode_enabled(),
             "target_format_ncm": self._cards["netease"].format_value("target_format_ncm"),
             "auto_transcode_after_decode": bool(self.config.get("netease", {}).get("auto_transcode_after_decode", False)),
         }
@@ -1496,19 +1572,6 @@ class MainWindow(QWidget):
             self.output_field.label.setText("共享输出目录")
             self.output_mode_note.setText("共享模式已启用：所有平台共用同一个输出目录。")
 
-    def _update_transcode_widgets(self) -> None:
-        enabled = self.transcode_enable_radio.isChecked()
-        for platform_id in ("qq", "kuwo", "kugou"):
-            self._cards[platform_id].set_formats_enabled(enabled)
-        if enabled:
-            self.transcode_note.setText(
-                "提示：已启用转码。QQ / 酷我 / 酷狗会按标签页里选择的目标格式输出。"
-            )
-        else:
-            self.transcode_note.setText(
-                "提示：已关闭转码。QQ / 酷我 / 酷狗会直接输出解密后的原始音频格式，通常更快，也更接近源文件。"
-            )
-
     def _resolve_output_dir(self, platform_id: str) -> pathlib.Path:
         base_output = pathlib.Path(self.output_field.text() or str(self.paths.output_dir))
         if self.output_mode_platform_radio.isChecked():
@@ -1540,7 +1603,7 @@ class MainWindow(QWidget):
         input_path = pathlib.Path(self._cards[platform_id].input_field.text())
         output_dir = self._resolve_output_dir(platform_id)
         settings = dict(self.config[platform_id])
-        settings["transcode_enabled"] = bool(self.config.get("shared", {}).get("transcode_enabled", True))
+        settings["transcode_enabled"] = bool(self.config.get(platform_id, {}).get("transcode_enabled", True))
         settings["embed_cover_art"] = bool(self.config.get("shared", {}).get("embed_cover_art", True))
         settings["supplement_album_metadata"] = bool(self.config.get("shared", {}).get("supplement_album_metadata", False))
         recursive = self.recursive_checkbox.isChecked()

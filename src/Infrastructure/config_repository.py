@@ -116,6 +116,7 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
             "output_dir": str(paths.output_dir / "qq"),
             "process_match": "qqmusic",
             "embed_cover_art": True,
+            "transcode_enabled": True,
             "format_rules": {"mflac": "flac", "mgg": "m4a", "mmp4": "m4a"},
             "auto_transcode_after_decode": False,
         },
@@ -125,6 +126,7 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
             "process_name": "kwmusic.exe",
             "exe_path": "",
             "signature_file": str(default_kuwo_signature_path(paths)),
+            "transcode_enabled": True,
             "format_kwm": "auto",
             "auto_transcode_after_decode": False,
         },
@@ -133,6 +135,7 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
             "output_dir": str(paths.output_dir / "kugou"),
             "kgg_db_path": str(auto_find_kgg_db_path() or ""),
             "key_file": str(auto_find_kugou_key(paths) or (paths.assets_dir / "kugou_key.xz")),
+            "transcode_enabled": True,
             "target_format_kgma": "auto",
             "target_format_kgg": "auto",
             "auto_transcode_after_decode": False,
@@ -140,6 +143,7 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
         "netease": {
             "input_dir": str(DEFAULT_NETEASE_INPUT),
             "output_dir": str(paths.output_dir / "netease"),
+            "transcode_enabled": True,
             "target_format_ncm": "auto",
             "auto_transcode_after_decode": False,
         },
@@ -204,6 +208,12 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
     config["shared"]["cli_collision_policy"] = str(config["shared"].get("cli_collision_policy", "suffix") or "suffix").lower()
     config["shared"]["recursive"] = bool(config["shared"].get("recursive", True))
     for platform_id in ("qq", "kuwo", "kugou", "netease"):
+        transcode_enabled = config[platform_id].get("transcode_enabled", shared_transcode_enabled)
+        if isinstance(transcode_enabled, str):
+            transcode_enabled = transcode_enabled.strip().lower() in {"1", "true", "yes", "y", "on"}
+        else:
+            transcode_enabled = bool(transcode_enabled)
+        config[platform_id]["transcode_enabled"] = transcode_enabled
         auto_transcode = config[platform_id].get("auto_transcode_after_decode", False)
         if isinstance(auto_transcode, str):
             auto_transcode = auto_transcode.strip().lower() in {"1", "true", "yes", "y", "on"}
