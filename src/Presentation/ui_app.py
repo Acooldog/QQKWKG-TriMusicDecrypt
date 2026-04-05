@@ -91,6 +91,23 @@ REASON_TRANSLATIONS: dict[str, tuple[str, str]] = {
     "unknown_error": ("未知错误", "Unknown error"),
 }
 
+USAGE_TIPS: list[dict[str, str]] = [
+    {
+        "id": "qq_latest_version_container",
+        "title": "QQ 音乐容器识别",
+        "summary": "请使用最新版 QQ 音乐下载待解密文件，否则导出函数可能无法识别容器。",
+        "detail": (
+            "请使用最新版本 QQ 音乐，并且确保待解密文件是最新版 QQ 音乐所下载的，"
+            "否则导出函数将不识别容器。\n\n"
+            "建议：\n"
+            "1. 先把 QQ 音乐更新到最新版本。\n"
+            "2. 再重新下载需要解密的歌曲。\n"
+            "3. 尽量不要混用旧版本客户端下载的缓存和新版本客户端下载的缓存。\n"
+            "4. 如果出现“容器无法识别”“导出失败”，优先先重下该文件再测试。"
+        ),
+    }
+]
+
 
 def _status_label(ok: bool, skipped: bool) -> str:
     if skipped:
@@ -290,6 +307,7 @@ class TitleBar(QFrame):
     def __init__(self, parent: QWidget, title: str) -> None:
         super().__init__(parent)
         self._drag_offset: QPoint | None = None
+        self._parent_widget = parent
         self.setObjectName("TitleBar")
         layout = QHBoxLayout(self)
         layout.setContentsMargins(18, 12, 18, 10)
@@ -318,14 +336,23 @@ class TitleBar(QFrame):
         layout.addLayout(text_box)
         layout.addStretch(1)
 
+        self.tips_button = QPushButton("使用技巧")
+        self.tips_button.setObjectName("SecondaryButton")
         self.min_button = QPushButton("最小化")
         self.min_button.setObjectName("GhostButton")
         self.close_button = QPushButton("关闭")
         self.close_button.setObjectName("DangerButton")
+        self.tips_button.clicked.connect(self._handle_tips)
         self.min_button.clicked.connect(parent.showMinimized)
         self.close_button.clicked.connect(parent.close)
+        layout.addWidget(self.tips_button)
         layout.addWidget(self.min_button)
         layout.addWidget(self.close_button)
+
+    def _handle_tips(self) -> None:
+        callback = getattr(self._parent_widget, "_show_usage_tips", None)
+        if callable(callback):
+            callback()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -669,6 +696,108 @@ class BatchDetailDialog(QDialog):
         if raw_reason:
             lines.extend(["", "原始原因代码：", raw_reason])
         self.detail_view.setPlainText("\n".join(lines))
+
+
+class UsageTipDetailDialog(QDialog):
+    def __init__(self, tip: dict[str, str], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(str(tip.get("title", "使用技巧") or "使用技巧"))
+        self.setModal(True)
+        self.resize(760, 520)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        title = QLabel(str(tip.get("title", "使用技巧") or "使用技巧"))
+        title.setObjectName("CardTitle")
+        summary = QLabel(str(tip.get("summary", "") or ""))
+        summary.setObjectName("MutedText")
+        summary.setWordWrap(True)
+
+        detail = QPlainTextEdit()
+        detail.setObjectName("LogView")
+        detail.setReadOnly(True)
+        detail.setPlainText(str(tip.get("detail", "") or ""))
+
+        close_button = QPushButton("关闭")
+        close_button.setObjectName("PrimaryButton")
+        close_button.clicked.connect(self.accept)
+
+        layout.addWidget(title)
+        layout.addWidget(summary)
+        layout.addWidget(detail, 1)
+        layout.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignRight)
+
+
+class UsageTipsDialog(QDialog):
+    def __init__(self, tips: list[dict[str, str]], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._tips = list(tips)
+        self.setWindowTitle("使用技巧")
+        self.setModal(True)
+        self.resize(860, 620)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        title = QLabel("使用技巧")
+        title.setObjectName("CardTitle")
+        subtitle = QLabel("这里汇总了常见平台的使用建议。点击卡片上的“查看详情”可查看完整说明。")
+        subtitle.setObjectName("MutedText")
+        subtitle.setWordWrap(True)
+        layout.addWidget(title)
+        layout.addWidget(subtitle)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        layout.addWidget(scroll, 1)
+
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(12)
+
+        for tip in self._tips:
+            card = QFrame()
+            card.setObjectName("ConfigCard")
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(16, 14, 16, 14)
+            card_layout.setSpacing(10)
+
+            card_title = QLabel(str(tip.get("title", "使用技巧") or "使用技巧"))
+            card_title.setObjectName("CardTitle")
+            card_summary = QLabel(str(tip.get("summary", "") or ""))
+            card_summary.setObjectName("MutedText")
+            card_summary.setWordWrap(True)
+
+            button_row = QHBoxLayout()
+            button_row.setContentsMargins(0, 0, 0, 0)
+            button_row.setSpacing(8)
+            button_row.addStretch(1)
+            detail_button = QPushButton("查看详情")
+            detail_button.setObjectName("SecondaryButton")
+            detail_button.clicked.connect(lambda _=False, item=dict(tip): self._show_tip_detail(item))
+            button_row.addWidget(detail_button)
+
+            card_layout.addWidget(card_title)
+            card_layout.addWidget(card_summary)
+            card_layout.addLayout(button_row)
+            container_layout.addWidget(card)
+
+        container_layout.addStretch(1)
+        scroll.setWidget(container)
+
+        close_button = QPushButton("关闭")
+        close_button.setObjectName("PrimaryButton")
+        close_button.clicked.connect(self.accept)
+        layout.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignRight)
+
+    def _show_tip_detail(self, tip: dict[str, str]) -> None:
+        dialog = UsageTipDetailDialog(tip, self)
+        dialog.exec()
 
 
 class PlatformCard(QFrame):
@@ -1534,6 +1663,10 @@ class MainWindow(QWidget):
             fallback_text=detail_payload.get("fallback_text"),
             parent=self,
         )
+        dialog.exec()
+
+    def _show_usage_tips(self) -> None:
+        dialog = UsageTipsDialog(USAGE_TIPS, self)
         dialog.exec()
 
     def _start_task_thread(self, target) -> None:
