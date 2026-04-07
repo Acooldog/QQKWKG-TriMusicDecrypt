@@ -6,7 +6,7 @@ import shutil
 import time
 from dataclasses import dataclass, field
 
-from src.Infrastructure.process_utils import find_process_by_substring
+from src.Infrastructure.process_utils import find_process_by_name, find_process_by_substring
 from src.Infrastructure.transcoder import detect_audio_container
 
 
@@ -55,8 +55,10 @@ class QQPlatformAdapter:
 
     def validate_runtime(self, settings: dict) -> tuple[bool, str | None]:
         process_match = str(settings.get('process_match', 'qqmusic') or 'qqmusic')
-        info = find_process_by_substring(process_match)
-        return (info is not None, None if info is not None else 'QQ音乐未运行')
+        info = find_process_by_name('QQMusic.exe')
+        if info is None:
+            info = find_process_by_substring(process_match)
+        return (info is not None, None if info is not None else 'QQ?????')
 
     def collect_files(self, input_path: pathlib.Path, recursive: bool) -> list[pathlib.Path]:
         if input_path.is_file():
