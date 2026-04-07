@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.Application.platform_task_queue import PlatformTaskQueue
+from src.Application.transcode_batch_service import run_transcode_batch
 from src.Infrastructure.config_repository import (
     LEGAL_NOTICE,
     PROJECT_ADDRESS,
@@ -58,6 +59,7 @@ from src.Infrastructure.config_repository import (
 )
 from src.Infrastructure.platforms.registry import build_platform_adapter
 from src.Infrastructure.runtime_paths import RuntimePaths
+from src.Presentation.transcode_card import TranscodeBatchCard
 
 WINDOW_BG = "#101215"
 SHELL_BG = "#171A1F"
@@ -259,11 +261,15 @@ def build_app_stylesheet() -> str:
     QPushButton#SecondaryButton {{ background: #243042; border-color: #314055; }}
     QPushButton#GhostButton {{ background: transparent; }}
     QPushButton#DangerButton {{ background: #3B1D22; border-color: #5B2830; }}
+    QPushButton#RoundButton {{ background: #243042; border-color: #314055; font-size: 16px; font-weight: 700; padding: 0px; }}
+    QPushButton#DangerRoundButton {{ background: #3B1D22; border-color: #5B2830; font-size: 16px; font-weight: 700; padding: 0px; }}
     QPushButton:hover {{ border-color: {ACCENT}; background: #273042; }}
     QPushButton#PrimaryButton:hover {{ background: #4A9DF1; border-color: #4A9DF1; }}
     QPushButton#SecondaryButton:hover {{ background: #2B3850; border-color: #476081; }}
     QPushButton#GhostButton:hover {{ background: #1A1F28; }}
     QPushButton#DangerButton:hover {{ background: #51242B; border-color: #7A343F; }}
+    QPushButton#RoundButton:hover {{ background: #2B3850; border-color: #476081; }}
+    QPushButton#DangerRoundButton:hover {{ background: #51242B; border-color: #7A343F; }}
     QPushButton:pressed {{ padding-top: 9px; padding-bottom: 7px; background: #1B2230; }}
     QPushButton#PrimaryButton:pressed {{ background: #226EBD; }}
     QPushButton#SecondaryButton:pressed {{ background: #1F2938; }}
@@ -301,6 +307,7 @@ class UiBridge(QObject):
     runtime_prompt_request = Signal(object)
     transcode_confirmation_request = Signal(object)
     submission_result = Signal(object)
+    transcode_event = Signal(object)
 
 
 class TitleBar(QFrame):
@@ -1135,6 +1142,7 @@ class MainWindow(QWidget):
             max_running=2,
         )
         self._submission_inflight: set[str] = set()
+        self._transcode_running = False
         self._drag_origin: QPoint | None = None
         self._cards: dict[str, PlatformCard] = {}
         self._tab_platform_ids: list[str] = []
@@ -1318,6 +1326,9 @@ class MainWindow(QWidget):
         tabs_layout.addWidget(self.platform_tabs, 1)
         body_layout.addWidget(tabs_card)
 
+        self.transcode_card = TranscodeBatchCard()
+        body_layout.addWidget(self.transcode_card)
+
         def add_platform_tab(card: PlatformCard, title_text: str) -> None:
             page = QWidget()
             page_layout = QVBoxLayout(page)
@@ -1416,6 +1427,10 @@ class MainWindow(QWidget):
             self._handle_runtime_prompt_request)
         self.bridge.transcode_confirmation_request.connect(self._handle_transcode_confirmation_request)
         self.bridge.submission_result.connect(self._handle_submission_result)
+        self.bridge.transcode_event.connect(self._handle_transcode_event)
+        self.transcode_card.choose_input_requested.connect(self._handle_transcode_choose_input)
+        self.transcode_card.choose_output_requested.connect(self._handle_transcode_choose_output)
+        self.transcode_card.start_requested.connect(self._handle_transcode_start)
 
     def _platform_title(self, platform_id: str) -> str:
         return {"qq": "QQ音乐", "kuwo": "酷我音乐", "kugou": "酷狗音乐", "netease": "网易云音乐"}[platform_id]
@@ -1487,6 +1502,12 @@ class MainWindow(QWidget):
         self._cards["netease"].extra_field("output_dir").setText(
             str(netease.get("output_dir", pathlib.Path(self.paths.output_dir) / "netease")))
 
+        transcode_batch = self.config.get("transcode_batch", {})
+        self.transcode_card.set_input_paths(list(transcode_batch.get("input_paths", [])))
+        self.transcode_card.set_output_dir(str(transcode_batch.get("output_dir", pathlib.Path(self.paths.output_dir) / "transcode")))
+        self.transcode_card.set_recursive(bool(transcode_batch.get("recursive", True)))
+        self.transcode_card.set_rules(list(transcode_batch.get("rules", [])))
+
     def _save_config_from_widgets(self, *, announce: bool = True) -> None:
         shared = {
             "output_mode": "per_platform" if self.output_mode_platform_radio.isChecked() else "shared",
@@ -1536,8 +1557,15 @@ class MainWindow(QWidget):
             "target_format_ncm": self._cards["netease"].format_value("target_format_ncm"),
             "auto_transcode_after_decode": bool(self.config.get("netease", {}).get("auto_transcode_after_decode", False)),
         }
+        transcode_batch = {
+            "input_paths": self.transcode_card.input_paths(),
+            "output_dir": self.transcode_card.output_dir() or str(self.paths.output_dir / "transcode"),
+            "recursive": self.transcode_card.recursive(),
+            "max_workers": int(self.config.get("transcode_batch", {}).get("max_workers", 2) or 2),
+            "rules": self.transcode_card.rules(),
+        }
         self.config = {"shared": shared, "qq": qq,
-                       "kuwo": kuwo, "kugou": kugou, "netease": netease}
+                       "kuwo": kuwo, "kugou": kugou, "netease": netease, "transcode_batch": transcode_batch}
         save_config(self.paths, self.root_config, self.config)
         if announce:
             self._append_log("配置已保存。")
@@ -1557,6 +1585,84 @@ class MainWindow(QWidget):
             )
         output_dir.mkdir(parents=True, exist_ok=True)
         QDesktopServices.openUrl(output_dir.as_uri())
+
+
+
+    def _handle_transcode_choose_input(self, index: int) -> None:
+        start = self.transcode_card.input_path_at(index) or str(self.paths.root_dir)
+        selected = QFileDialog.getExistingDirectory(self, "选择转码输入目录", start)
+        if selected:
+            self.transcode_card.set_input_path(index, selected)
+
+    def _handle_transcode_choose_output(self) -> None:
+        start = self.transcode_card.output_dir() or str(self.paths.output_dir / "transcode")
+        selected = QFileDialog.getExistingDirectory(self, "选择转码输出目录", start)
+        if selected:
+            self.transcode_card.set_output_dir(selected)
+
+    def _handle_transcode_start(self) -> None:
+        if self._transcode_running:
+            self._append_log("[批量转码] 当前已有任务在运行，请稍候。")
+            return
+        self._save_config_from_widgets(announce=False)
+        input_paths = [pathlib.Path(item) for item in self.transcode_card.input_paths()]
+        if not input_paths:
+            self._show_message("缺少输入目录", "请至少添加一个转码输入目录")
+            return
+        output_dir = pathlib.Path(self.transcode_card.output_dir() or (self.paths.output_dir / "transcode"))
+        rules = self.transcode_card.rules()
+        self._transcode_running = True
+        self.transcode_card.set_running(True)
+        self.transcode_card.status_label.setText("状态：准备转码任务")
+        self.transcode_card.detail_label.setText("说明：正在生成批量转码计划")
+        self._append_log("[批量转码] 正在准备任务...")
+        threading.Thread(
+            target=self._run_transcode_batch_task,
+            args=(input_paths, output_dir, rules, self.transcode_card.recursive(), int(self.config.get("transcode_batch", {}).get("max_workers", 2) or 2)),
+            daemon=True,
+        ).start()
+
+    def _run_transcode_batch_task(
+        self,
+        input_paths: list[pathlib.Path],
+        output_dir: pathlib.Path,
+        rules: list[dict[str, str]],
+        recursive: bool,
+        max_workers: int,
+    ) -> None:
+        try:
+            run_transcode_batch(
+                input_paths=input_paths,
+                output_dir=output_dir,
+                rules=rules,
+                recursive=recursive,
+                max_workers=max_workers,
+                event_sink=lambda event_name, payload: self.bridge.transcode_event.emit((event_name, dict(payload))),
+            )
+        except Exception as exc:
+            self.bridge.transcode_event.emit(("job_failed", {"input_path": "批量转码任务", "reason": str(exc), "output_path": "", "target_format": "", "elapsed_sec": 0}))
+            self.bridge.transcode_event.emit(("batch_finished", {"success_count": 0, "failed_count": 1, "elapsed_sec": 0, "total_jobs": 0}))
+
+    def _handle_transcode_event(self, payload: object) -> None:
+        event_name, data = payload if isinstance(payload, tuple) and len(payload) == 2 else ("unknown", {})
+        data = data if isinstance(data, dict) else {}
+        self.transcode_card.apply_event(str(event_name), data)
+        if event_name == "plan_ready":
+            self._append_log(f"[批量转码] 已生成 {int(data.get('total_jobs', 0) or 0)} 个任务，并发 {int(data.get('worker_count', 0) or 0)} 路。")
+        elif event_name == "warning":
+            self._append_log(f"[批量转码] {data.get('message', '')}")
+        elif event_name == "job_started":
+            self._append_log(f"[批量转码] 开始：{pathlib.Path(str(data.get('input_path', '') or '')).name} -> {data.get('target_format', '')}")
+        elif event_name == "job_succeeded":
+            self._append_log(f"[批量转码] 完成：{pathlib.Path(str(data.get('output_path', '') or '')).name}")
+        elif event_name == "job_failed":
+            self._append_log(f"[批量转码] 失败：{pathlib.Path(str(data.get('input_path', '') or '')).name}：{data.get('reason', '')}")
+        elif event_name == "batch_finished":
+            self._transcode_running = False
+            self.transcode_card.set_running(False)
+            self._append_log(
+                f"[批量转码] 已结束：成功 {int(data.get('success_count', 0) or 0)}，失败 {int(data.get('failed_count', 0) or 0)}，耗时 {data.get('elapsed_sec', 0)}s"
+            )
 
     def _update_output_mode_widgets(self) -> None:
         per_platform = self.output_mode_platform_radio.isChecked()
