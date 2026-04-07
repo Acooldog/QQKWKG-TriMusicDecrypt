@@ -603,6 +603,7 @@ class PathField(QFrame):
 
     def setText(self, value: str) -> None:
         self.edit.setText(value)
+        self.edit.setCursorPosition(0)
 
 
 class BatchDetailDialog(QDialog):
@@ -1149,12 +1150,16 @@ class PlatformCard(QFrame):
         self.set_formats_enabled(enabled)
         for key, toggle in self._transcode_profile_toggles.items():
             combo = self._transcode_profile_combos[key]
+            if not enabled and toggle.isChecked():
+                toggle.blockSignals(True)
+                toggle.setChecked(False)
+                toggle.blockSignals(False)
             toggle.setEnabled(enabled)
             combo.setEnabled(enabled and toggle.isChecked())
         if enabled:
-            self.transcode_hint.setText("已启用转码。解密成功后会按下方格式规则与可选音频参数统一转码。")
+            self.transcode_hint.setText("???????????????????????????????")
         else:
-            self.transcode_hint.setText("未启用转码。当前平台只输出解密后的原始格式。")
+            self.transcode_hint.setText("??????????????????????")
 
     def detail_paths(self) -> tuple[str, str]:
         return self._batch_report_json, self._batch_report_txt
