@@ -8,6 +8,10 @@ import sys
 from typing import Any, Callable
 
 from src.Application.decrypt_service import run_batch
+from src.Application.transcode_batch_service import (
+    ALL_SOURCE_FORMAT,
+    run_transcode_batch,
+)
 from src.Application.models import BatchRunConfig
 from src.Infrastructure.config_repository import (
     PROJECT_ADDRESS,
@@ -23,6 +27,8 @@ from src.Infrastructure.config_repository import (
     save_config,
     save_default_config_if_missing,
     supported_transcode_formats,
+    TRANSCODE_BITRATE_OPTIONS,
+    TRANSCODE_SAMPLE_RATE_OPTIONS,
     validate_target_format,
 )
 from src.Infrastructure.platforms.registry import build_platform_adapter
@@ -71,6 +77,122 @@ def prompt_choice(prompt: str, default: str, choices: list[str]) -> str:
         raise ValueError(f"unsupported option: {value}")
     return value
 
+
+def prompt_optional_choice_int(prompt: str, default: int | None, choices: tuple[int, ...]) -> int | None:
+    default_label = str(default) if default is not None else "关闭"
+    raw = input(f"{prompt} [{default_label}，输入 off 关闭]: ").strip().lower()
+    if not raw:
+        return default
+    if raw in {"off", "none", "disable", "close", "关闭"}:
+        return None
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"unsupported numeric option: {raw}") from exc
+    if value not in choices:
+        allowed = ", ".join(str(item) for item in choices)
+        raise ValueError(f"unsupported numeric option: {value}; allowed: {allowed}")
+    return value
+
+
+def configure_platform_transcode_profile(settings: dict[str, Any]) -> None:
+    settings["transcode_sample_rate_hz"] = prompt_optional_choice_int(
+        "指定采样率（仅在转码时生效）",
+        settings.get("transcode_sample_rate_hz"),
+        TRANSCODE_SAMPLE_RATE_OPTIONS,
+    )
+    settings["transcode_bitrate_kbps"] = prompt_optional_choice_int(
+        "指定比特率（仅在转码到有损格式时生效）",
+        settings.get("transcode_bitrate_kbps"),
+        TRANSCODE_BITRATE_OPTIONS,
+    )
+
+
+def parse_transcode_rule_spec(spec: str) -> dict[str, Any]:
+    parts = [segment.strip() for segment in str(spec or "").split(":")]
+    if len(parts) < 2 or len(parts) > 4:
+        raise ValueError("rule format must be <source>:<target>[:sample_rate_hz[:bitrate_kbps]]")
+    source_format = parts[0] or ALL_SOURCE_FORMAT
+    if source_format.lower() == "all":
+        source_format = ALL_SOURCE_FORMAT
+    target_format = parts[1] or "m4a"
+    sample_rate_hz = int(parts[2]) if len(parts) >= 3 and parts[2] else None
+    bitrate_kbps = int(parts[3]) if len(parts) >= 4 and parts[3] else None
+    return {
+        "source_format": source_format,
+        "target_format": target_format,
+        "sample_rate_hz": sample_rate_hz,
+        "bitrate_kbps": bitrate_kbps,
+    }
+
+
+def _transcode_rule_label(rule: dict[str, Any]) -> str:
+    parts = [f"{rule.get('source_format', ALL_SOURCE_FORMAT)} -> {rule.get('target_format', 'm4a')}"]
+    if rule.get("sample_rate_hz"):
+        parts.append(f"{rule['sample_rate_hz']} Hz")
+    if rule.get("bitrate_kbps"):
+        parts.append(f"{rule['bitrate_kbps']} kbps")
+    return " | ".join(parts)
+
+
+def build_transcode_batch_event_sink() -> Callable[[str, dict[str, Any]], None]:
+    def _sink(event_name: str, payload: dict[str, Any]) -> None:
+        if event_name == "plan_ready":
+            print(f"已生成批量转码计划：任务 {payload.get('total_jobs', 0)} 个，并发 {payload.get('worker_count', 0)} 路")
+        elif event_name == "warning":
+            print(f"警告：{payload.get('message', '')}")
+        elif event_name == "job_started":
+            extras: list[str] = []
+            if payload.get("sample_rate_hz"):
+                extras.append(f"{payload['sample_rate_hz']} Hz")
+            if payload.get("bitrate_kbps"):
+                extras.append(f"{payload['bitrate_kbps']} kbps")
+            extra_text = f"（{' / '.join(extras)}）" if extras else ""
+            print(f"开始转码：{payload.get('input_path', '')} -> {payload.get('output_path', '')}{extra_text}")
+        elif event_name == "job_succeeded":
+            print(f"转码成功：{payload.get('output_path', '')}（{payload.get('elapsed_sec', 0)}s）")
+        elif event_name == "job_failed":
+            print(f"转码失败：{payload.get('input_path', '')}，原因：{payload.get('reason', '')}")
+        elif event_name == "batch_finished":
+            print(
+                f"批量转码完成：成功 {payload.get('success_count', 0)}，失败 {payload.get('failed_count', 0)}，总耗时 {payload.get('elapsed_sec', 0)}s"
+            )
+    return _sink
+
+
+def _run_transcode_batch_cli(paths: RuntimePaths, config: dict[str, Any], args: argparse.Namespace) -> int:
+    transcode_config = dict(config.get("transcode_batch", {}))
+    input_values = list(args.input or transcode_config.get("input_paths", []))
+    if not input_values:
+        print("请通过 --input 指定至少一个输入目录，或者先在配置文件里保存 transcode_batch.input_paths。", file=sys.stderr)
+        return 2
+    output_dir = pathlib.Path(args.output or transcode_config.get("output_dir") or (paths.output_dir / "transcode"))
+    recursive = not bool(args.no_recursive)
+    max_workers = max(1, min(int(args.max_workers or transcode_config.get("max_workers", 2) or 2), 4))
+    rules = [parse_transcode_rule_spec(item) for item in (args.rule or [])] or list(transcode_config.get("rules", []))
+    if not rules:
+        rules = [{"source_format": ALL_SOURCE_FORMAT, "target_format": "m4a", "sample_rate_hz": None, "bitrate_kbps": None}]
+
+    config.setdefault("transcode_batch", {})["input_paths"] = [str(item) for item in input_values]
+    config["transcode_batch"]["output_dir"] = str(output_dir)
+    config["transcode_batch"]["recursive"] = recursive
+    config["transcode_batch"]["max_workers"] = max_workers
+    config["transcode_batch"]["rules"] = rules
+    root, _ = load_config(paths)
+    save_config(paths, root, config)
+
+    print("批量转码配置：")
+    for index, rule in enumerate(rules, start=1):
+        print(f"  规则 {index}: {_transcode_rule_label(rule)}")
+    result = run_transcode_batch(
+        input_paths=[pathlib.Path(item) for item in input_values],
+        output_dir=output_dir,
+        rules=rules,
+        recursive=recursive,
+        max_workers=max_workers,
+        event_sink=build_transcode_batch_event_sink(),
+    )
+    return 0 if result.failed_count == 0 else 1
 
 def choose_platform() -> str:
     print("请选择平台:")
@@ -211,7 +333,6 @@ def _run_platform(platform_id: str, config: dict, *, input_override: str | None 
             if not interactive and reason:
                 print(reason, file=sys.stderr)
             return pause_exit(2, reason) if interactive else 2
-        config[platform_id].update(settings)
     elif adapter.requires_running_process():
         if interactive:
             ok, reason = _ensure_running_for_interactive(platform_id, adapter, settings)
@@ -223,6 +344,7 @@ def _run_platform(platform_id: str, config: dict, *, input_override: str | None 
                 if reason:
                     print(reason, file=sys.stderr)
                 return 2
+    config[platform_id].update(settings)
     batch_config = BatchRunConfig(
         platform_id=platform_id,
         input_path=input_path,
@@ -345,6 +467,13 @@ def build_parser(paths: RuntimePaths) -> argparse.ArgumentParser:
         album_group.add_argument("--supplement-album", dest="supplement_album_metadata", action="store_true", help="补充专辑信息（m4a/wav）")
         album_group.add_argument("--no-supplement-album", dest="supplement_album_metadata", action="store_false", help="不补充专辑信息")
         dec.set_defaults(embed_cover_art=None, supplement_album_metadata=None, transcode_enabled=None)
+
+    transcode_parser = sub.add_parser("transcode-batch", help="执行批量转码")
+    transcode_parser.add_argument("--input", action="append", help="输入文件或目录，可重复传入")
+    transcode_parser.add_argument("--output", help="输出目录")
+    transcode_parser.add_argument("--no-recursive", action="store_true", help="禁用递归扫描")
+    transcode_parser.add_argument("--max-workers", type=int, choices=[1, 2, 3, 4], help="并发转码任务数，1-4")
+    transcode_parser.add_argument("--rule", action="append", help="规则格式：<source>:<target>[:sample_rate_hz[:bitrate_kbps]]，例如 全部:m4a:48000:256")
     return parser
 
 
@@ -363,13 +492,15 @@ def main(argv: list[str] | None = None) -> int:
         if admin_code is not None:
             return admin_code
         return run_interactive()
+    _, config = load_config(paths)
+    if args.platform == "transcode-batch":
+        return _run_transcode_batch_cli(paths, config, args)
     if args.command != "decrypt":
         parser.print_help()
         return 1
     admin_code = _require_admin(interactive=False)
     if admin_code is not None:
         return admin_code
-    _, config = load_config(paths)
     platform_id = args.platform
     settings = dict(config[platform_id])
     if args.transcode_enabled is not None:
@@ -378,6 +509,10 @@ def main(argv: list[str] | None = None) -> int:
         config["shared"]["embed_cover_art"] = bool(args.embed_cover_art)
     if args.supplement_album_metadata is not None:
         config["shared"]["supplement_album_metadata"] = bool(args.supplement_album_metadata)
+    if getattr(args, "sample_rate", None) is not None:
+        settings["transcode_sample_rate_hz"] = int(args.sample_rate)
+    if getattr(args, "bitrate", None) is not None:
+        settings["transcode_bitrate_kbps"] = int(args.bitrate)
     if platform_id == "qq":
         rules = dict(settings.get("format_rules", {}))
         for source_key, attr_name in (("mflac", "format_mflac"), ("mgg", "format_mgg"), ("mmp4", "format_mmp4")):
@@ -409,3 +544,7 @@ def main(argv: list[str] | None = None) -> int:
     config[platform_id].update(settings)
     recursive = not args.no_recursive
     return _run_platform(platform_id, config, input_override=args.input, output_override=args.output, recursive_override=recursive, interactive=False)
+
+
+
+

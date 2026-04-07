@@ -20,6 +20,8 @@ DEFAULT_KUGOU_INPUT = pathlib.Path(r"O:\KuGou\KugouMusic")
 DEFAULT_KUWO_INPUT = pathlib.Path(r"C:\Users\01080\Documents\Frontier Developments\Planet Coaster\UserMusic\MusicPack")
 DEFAULT_QQ_INPUT = pathlib.Path("")
 DEFAULT_NETEASE_INPUT = pathlib.Path("")
+TRANSCODE_SAMPLE_RATE_OPTIONS = (22050, 32000, 44100, 48000, 88200, 96000)
+TRANSCODE_BITRATE_OPTIONS = (96, 128, 160, 192, 256, 320)
 
 
 def _read_json(path: pathlib.Path) -> dict[str, Any]:
@@ -95,6 +97,23 @@ def default_kuwo_signature_path(paths: RuntimePaths) -> pathlib.Path:
     return candidates[0]
 
 
+def _normalize_optional_config_int(value: Any) -> int | None:
+    if value in (None, '', False):
+        return None
+    try:
+        normalized = int(value)
+    except Exception:
+        return None
+    return normalized if normalized > 0 else None
+
+
+def _normalize_optional_audio_choice(value: Any, allowed: tuple[int, ...]) -> int | None:
+    normalized = _normalize_optional_config_int(value)
+    if normalized is None:
+        return None
+    return normalized if normalized in allowed else None
+
+
 def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
     paths.ensure_runtime_dirs()
     root = _read_json(paths.plugins_config)
@@ -117,6 +136,8 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
             "process_match": "qqmusic",
             "embed_cover_art": True,
             "format_rules": {"mflac": "flac", "mgg": "m4a", "mmp4": "m4a"},
+            "transcode_sample_rate_hz": None,
+            "transcode_bitrate_kbps": None,
             "auto_transcode_after_decode": False,
         },
         "kuwo": {
@@ -126,6 +147,8 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
             "exe_path": "",
             "signature_file": str(default_kuwo_signature_path(paths)),
             "format_kwm": "auto",
+            "transcode_sample_rate_hz": None,
+            "transcode_bitrate_kbps": None,
             "auto_transcode_after_decode": False,
         },
         "kugou": {
@@ -135,12 +158,16 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
             "key_file": str(auto_find_kugou_key(paths) or (paths.assets_dir / "kugou_key.xz")),
             "target_format_kgma": "auto",
             "target_format_kgg": "auto",
+            "transcode_sample_rate_hz": None,
+            "transcode_bitrate_kbps": None,
             "auto_transcode_after_decode": False,
         },
         "netease": {
             "input_dir": str(DEFAULT_NETEASE_INPUT),
             "output_dir": str(paths.output_dir / "netease"),
             "target_format_ncm": "auto",
+            "transcode_sample_rate_hz": None,
+            "transcode_bitrate_kbps": None,
             "auto_transcode_after_decode": False,
         },
         "transcode_batch": {
@@ -223,6 +250,9 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
             auto_transcode = bool(auto_transcode)
         config[platform_id]["auto_transcode_after_decode"] = auto_transcode
     config["kuwo"]["format_kwm"] = normalize_target_format(config["kuwo"].get("format_kwm", "auto"))
+    for platform_id in ("qq", "kuwo", "kugou", "netease"):
+        config[platform_id]["transcode_sample_rate_hz"] = _normalize_optional_audio_choice(config[platform_id].get("transcode_sample_rate_hz"), TRANSCODE_SAMPLE_RATE_OPTIONS)
+        config[platform_id]["transcode_bitrate_kbps"] = _normalize_optional_audio_choice(config[platform_id].get("transcode_bitrate_kbps"), TRANSCODE_BITRATE_OPTIONS)
     config["kugou"]["target_format_kgma"] = normalize_target_format(config["kugou"].get("target_format_kgma", "auto"))
     config["kugou"]["target_format_kgg"] = normalize_target_format(config["kugou"].get("target_format_kgg", "auto"))
     config["netease"]["target_format_ncm"] = normalize_target_format(config["netease"].get("target_format_ncm", "auto"))
@@ -240,8 +270,8 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
         transcode_batch["max_workers"] = 2
     raw_rules = transcode_batch.get("rules", [])
     if not isinstance(raw_rules, list) or not raw_rules:
-        raw_rules = [{"source_format": "\u5168\u90e8", "target_format": "m4a"}]
-    normalized_rules: list[dict[str, str]] = []
+        raw_rules = [{"source_format": "\u5168\u90e8", "target_format": "m4a", "sample_rate_hz": None, "bitrate_kbps": None}]
+    normalized_rules: list[dict[str, Any]] = []
     for item in raw_rules:
         if not isinstance(item, dict):
             continue
@@ -251,9 +281,23 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
             target_format = "m4a"
         if source_format in {"??", "?", "\u5168\u90e8"}:
             source_format = "\u5168\u90e8"
-        normalized_rules.append({"source_format": source_format, "target_format": target_format})
+        normalized_rules.append(
+            {
+                "source_format": source_format,
+                "target_format": target_format,
+                "sample_rate_hz": _normalize_optional_config_int(item.get("sample_rate_hz")),
+                "bitrate_kbps": _normalize_optional_config_int(item.get("bitrate_kbps")),
+            }
+        )
     if not normalized_rules:
-        normalized_rules.append({"source_format": "\u5168\u90e8", "target_format": "m4a"})
+        normalized_rules.append(
+            {
+                "source_format": "\u5168\u90e8",
+                "target_format": "m4a",
+                "sample_rate_hz": None,
+                "bitrate_kbps": None,
+            }
+        )
     transcode_batch["rules"] = normalized_rules
     return root, config
 
@@ -296,4 +340,7 @@ def validate_target_format(value: str) -> str:
 
 def supported_transcode_formats() -> list[str]:
     return sorted(SUPPORTED_TARGET_FORMATS)
+
+
+
 

@@ -6,6 +6,17 @@ from dataclasses import dataclass
 from typing import Any
 
 
+def _subprocess_window_kwargs() -> dict[str, object]:
+    if hasattr(subprocess, "CREATE_NO_WINDOW"):
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        return {
+            "creationflags": subprocess.CREATE_NO_WINDOW,
+            "startupinfo": startupinfo,
+        }
+    return {}
+
+
 @dataclass(slots=True)
 class ProcessMatch:
     pid: int
@@ -15,7 +26,18 @@ class ProcessMatch:
 
 def _run_powershell_json(script: str) -> list[dict[str, Any]]:
     command = ["powershell.exe", "-NoProfile", "-Command", script]
-    completed = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=6,
+            **_subprocess_window_kwargs(),
+        )
+    except subprocess.TimeoutExpired:
+        return []
     if completed.returncode != 0:
         return []
     text = (completed.stdout or "").strip()
