@@ -143,8 +143,20 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
             "target_format_ncm": "auto",
             "auto_transcode_after_decode": False,
         },
+        "transcode_batch": {
+            "input_paths": [],
+            "output_dir": str(paths.output_dir / "transcode"),
+            "recursive": True,
+            "max_workers": 2,
+            "rules": [
+                {
+                    "source_format": "\u5168\u90e8",
+                    "target_format": "m4a",
+                }
+            ],
+        },
     }
-    for section in ("shared", "qq", "kuwo", "kugou", "netease"):
+    for section in ("shared", "qq", "kuwo", "kugou", "netease", "transcode_batch"):
         value = payload.get(section)
         if isinstance(value, dict):
             config[section].update(value)
@@ -214,6 +226,35 @@ def load_config(paths: RuntimePaths) -> tuple[dict[str, Any], dict[str, Any]]:
     config["kugou"]["target_format_kgma"] = normalize_target_format(config["kugou"].get("target_format_kgma", "auto"))
     config["kugou"]["target_format_kgg"] = normalize_target_format(config["kugou"].get("target_format_kgg", "auto"))
     config["netease"]["target_format_ncm"] = normalize_target_format(config["netease"].get("target_format_ncm", "auto"))
+
+    transcode_batch = config["transcode_batch"]
+    raw_input_paths = transcode_batch.get("input_paths", [])
+    if not isinstance(raw_input_paths, list):
+        raw_input_paths = []
+    transcode_batch["input_paths"] = [str(item).strip() for item in raw_input_paths if str(item).strip()]
+    transcode_batch["output_dir"] = str(transcode_batch.get("output_dir") or (paths.output_dir / "transcode"))
+    transcode_batch["recursive"] = bool(transcode_batch.get("recursive", True))
+    try:
+        transcode_batch["max_workers"] = max(1, min(int(transcode_batch.get("max_workers", 2) or 2), 4))
+    except Exception:
+        transcode_batch["max_workers"] = 2
+    raw_rules = transcode_batch.get("rules", [])
+    if not isinstance(raw_rules, list) or not raw_rules:
+        raw_rules = [{"source_format": "\u5168\u90e8", "target_format": "m4a"}]
+    normalized_rules: list[dict[str, str]] = []
+    for item in raw_rules:
+        if not isinstance(item, dict):
+            continue
+        source_format = str(item.get("source_format", "\u5168\u90e8") or "\u5168\u90e8").strip() or "\u5168\u90e8"
+        target_format = str(item.get("target_format", "m4a") or "m4a").strip().lower() or "m4a"
+        if target_format not in SUPPORTED_TARGET_FORMATS:
+            target_format = "m4a"
+        if source_format in {"??", "?", "\u5168\u90e8"}:
+            source_format = "\u5168\u90e8"
+        normalized_rules.append({"source_format": source_format, "target_format": target_format})
+    if not normalized_rules:
+        normalized_rules.append({"source_format": "\u5168\u90e8", "target_format": "m4a"})
+    transcode_batch["rules"] = normalized_rules
     return root, config
 
 
