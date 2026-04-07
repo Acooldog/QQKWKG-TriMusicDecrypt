@@ -5,6 +5,7 @@ import ctypes
 import json
 import pathlib
 import sys
+from typing import Any
 
 from src.Application.decrypt_service import run_batch
 from src.Application.models import BatchRunConfig
@@ -22,6 +23,8 @@ from src.Infrastructure.config_repository import (
     save_config,
     save_default_config_if_missing,
     supported_transcode_formats,
+    TRANSCODE_BITRATE_OPTIONS,
+    TRANSCODE_SAMPLE_RATE_OPTIONS,
     validate_target_format,
 )
 from src.Infrastructure.platforms.registry import build_platform_adapter
@@ -69,6 +72,36 @@ def prompt_choice(prompt: str, default: str, choices: list[str]) -> str:
     if value not in allowed:
         raise ValueError(f"unsupported option: {value}")
     return value
+
+
+def prompt_optional_choice_int(prompt: str, default: int | None, choices: tuple[int, ...]) -> int | None:
+    default_label = str(default) if default is not None else "关闭"
+    raw = input(f"{prompt} [{default_label}，输入 off 关闭]: ").strip().lower()
+    if not raw:
+        return default
+    if raw in {"off", "none", "disable", "close", "关闭"}:
+        return None
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"unsupported numeric option: {raw}") from exc
+    if value not in choices:
+        allowed = ", ".join(str(item) for item in choices)
+        raise ValueError(f"unsupported numeric option: {value}; allowed: {allowed}")
+    return value
+
+
+def configure_platform_transcode_profile(settings: dict[str, Any]) -> None:
+    settings["transcode_sample_rate_hz"] = prompt_optional_choice_int(
+        "指定采样率（仅在转码时生效）",
+        settings.get("transcode_sample_rate_hz"),
+        TRANSCODE_SAMPLE_RATE_OPTIONS,
+    )
+    settings["transcode_bitrate_kbps"] = prompt_optional_choice_int(
+        "指定比特率（仅在转码到有损格式时生效）",
+        settings.get("transcode_bitrate_kbps"),
+        TRANSCODE_BITRATE_OPTIONS,
+    )
 
 
 def choose_platform() -> str:
@@ -169,7 +202,6 @@ def _run_platform(platform_id: str, config: dict, *, input_override: str | None 
             if not interactive and reason:
                 print(reason, file=sys.stderr)
             return pause_exit(2, reason) if interactive else 2
-        config[platform_id].update(settings)
     elif adapter.requires_running_process():
         if interactive:
             ok, reason = _ensure_running_for_interactive(platform_id, adapter, settings)
@@ -181,6 +213,7 @@ def _run_platform(platform_id: str, config: dict, *, input_override: str | None 
                 if reason:
                     print(reason, file=sys.stderr)
                 return 2
+    config[platform_id].update(settings)
     batch_config = BatchRunConfig(
         platform_id=platform_id,
         input_path=input_path,
@@ -331,6 +364,10 @@ def main(argv: list[str] | None = None) -> int:
         config["shared"]["embed_cover_art"] = bool(args.embed_cover_art)
     if args.supplement_album_metadata is not None:
         config["shared"]["supplement_album_metadata"] = bool(args.supplement_album_metadata)
+    if getattr(args, "sample_rate", None) is not None:
+        settings["transcode_sample_rate_hz"] = int(args.sample_rate)
+    if getattr(args, "bitrate", None) is not None:
+        settings["transcode_bitrate_kbps"] = int(args.bitrate)
     if platform_id == "qq":
         rules = dict(settings.get("format_rules", {}))
         for source_key, attr_name in (("mflac", "format_mflac"), ("mgg", "format_mgg"), ("mmp4", "format_mmp4")):

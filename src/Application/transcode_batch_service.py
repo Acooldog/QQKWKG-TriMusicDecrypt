@@ -21,6 +21,8 @@ TRANSCODE_SOURCE_FORMATS: tuple[str, ...] = (
     "ape",
 )
 TRANSCODE_TARGET_FORMATS: tuple[str, ...] = ("flac", "m4a", "mp3", "wav")
+TRANSCODE_SAMPLE_RATE_OPTIONS: tuple[int, ...] = (22050, 32000, 44100, 48000, 88200, 96000)
+TRANSCODE_BITRATE_OPTIONS: tuple[int, ...] = (96, 128, 160, 192, 256, 320)
 SUPPORTED_INPUT_EXTENSIONS = {item for item in TRANSCODE_SOURCE_FORMATS if item != ALL_SOURCE_FORMAT}
 EventSink = Callable[[str, dict[str, Any]], None]
 
@@ -29,6 +31,8 @@ EventSink = Callable[[str, dict[str, Any]], None]
 class TranscodeRule:
     source_format: str
     target_format: str
+    sample_rate_hz: int | None = None
+    bitrate_kbps: int | None = None
 
 
 @dataclass(slots=True)
@@ -38,6 +42,8 @@ class TranscodeJob:
     relative_path: pathlib.Path
     target_format: str
     output_path: pathlib.Path
+    sample_rate_hz: int | None = None
+    bitrate_kbps: int | None = None
 
     @property
     def source_format(self) -> str:
@@ -70,16 +76,55 @@ def normalize_target_format(value: str) -> str:
     return raw
 
 
-def normalize_rules(items: Iterable[dict[str, str] | TranscodeRule]) -> list[TranscodeRule]:
+def _normalize_optional_int(
+    value: Any,
+    *,
+    label: str,
+    allowed: tuple[int, ...],
+) -> int | None:
+    if value in (None, "", False):
+        return None
+    try:
+        normalized = int(value)
+    except Exception as exc:
+        raise ValueError(f"invalid {label}: {value}") from exc
+    if normalized <= 0:
+        return None
+    if normalized not in allowed:
+        allowed_text = ", ".join(str(item) for item in allowed)
+        raise ValueError(f"unsupported {label}: {value}; allowed={allowed_text}")
+    return normalized
+
+
+def normalize_sample_rate(value: Any) -> int | None:
+    return _normalize_optional_int(value, label="sample rate", allowed=TRANSCODE_SAMPLE_RATE_OPTIONS)
+
+
+def normalize_bitrate(value: Any) -> int | None:
+    return _normalize_optional_int(value, label="bitrate", allowed=TRANSCODE_BITRATE_OPTIONS)
+
+
+def normalize_rules(items: Iterable[dict[str, Any] | TranscodeRule]) -> list[TranscodeRule]:
     rules: list[TranscodeRule] = []
     for item in items:
         if isinstance(item, TranscodeRule):
             source_format = normalize_source_format(item.source_format)
             target_format = normalize_target_format(item.target_format)
+            sample_rate_hz = normalize_sample_rate(item.sample_rate_hz)
+            bitrate_kbps = normalize_bitrate(item.bitrate_kbps)
         else:
             source_format = normalize_source_format(str(item.get("source_format", ALL_SOURCE_FORMAT)))
             target_format = normalize_target_format(str(item.get("target_format", "m4a")))
-        rules.append(TranscodeRule(source_format=source_format, target_format=target_format))
+            sample_rate_hz = normalize_sample_rate(item.get("sample_rate_hz"))
+            bitrate_kbps = normalize_bitrate(item.get("bitrate_kbps"))
+        rules.append(
+            TranscodeRule(
+                source_format=source_format,
+                target_format=target_format,
+                sample_rate_hz=sample_rate_hz,
+                bitrate_kbps=bitrate_kbps,
+            )
+        )
     if not rules:
         rules.append(TranscodeRule(source_format=ALL_SOURCE_FORMAT, target_format="m4a"))
     return rules
@@ -99,17 +144,26 @@ def _output_base_name(input_root: pathlib.Path) -> str:
     return input_root.stem or "input"
 
 
+def _rule_profile_suffix(rule: TranscodeRule) -> str:
+    parts: list[str] = []
+    if rule.sample_rate_hz:
+        parts.append(f"{rule.sample_rate_hz}hz")
+    if rule.bitrate_kbps:
+        parts.append(f"{rule.bitrate_kbps}k")
+    return ("." + ".".join(parts)) if parts else ""
+
+
 def build_transcode_jobs(
     input_paths: Iterable[pathlib.Path],
     output_dir: pathlib.Path,
-    rules: Iterable[dict[str, str] | TranscodeRule],
+    rules: Iterable[dict[str, Any] | TranscodeRule],
     *,
     recursive: bool = True,
 ) -> tuple[list[TranscodeJob], list[str]]:
     normalized_rules = normalize_rules(rules)
     jobs: list[TranscodeJob] = []
     warnings: list[str] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, int | None, int | None]] = set()
     output_dir = output_dir.resolve()
 
     for raw_root in input_paths:
@@ -126,28 +180,31 @@ def build_transcode_jobs(
             source_format = file_path.suffix.lower().lstrip(".")
             if source_format not in SUPPORTED_INPUT_EXTENSIONS:
                 continue
-            matching_targets = []
+            matching_rules: list[TranscodeRule] = []
             for rule in normalized_rules:
                 if rule.source_format == ALL_SOURCE_FORMAT or rule.source_format == source_format:
-                    matching_targets.append(rule.target_format)
-            if not matching_targets:
+                    matching_rules.append(rule)
+            if not matching_rules:
                 continue
             relative_path = pathlib.Path(file_path.name)
             if source_root.is_dir():
                 relative_path = file_path.relative_to(source_root)
-            for target_format in dict.fromkeys(matching_targets):
-                key = (str(file_path).lower(), target_format)
+            for rule in matching_rules:
+                key = (str(file_path).lower(), rule.target_format, rule.sample_rate_hz, rule.bitrate_kbps)
                 if key in seen:
                     continue
                 seen.add(key)
-                output_path = output_dir / root_name / relative_path.parent / f"{file_path.stem}.{target_format}"
+                suffix = _rule_profile_suffix(rule)
+                output_path = output_dir / root_name / relative_path.parent / f"{file_path.stem}{suffix}.{rule.target_format}"
                 jobs.append(
                     TranscodeJob(
                         source_root=source_root,
                         input_path=file_path,
                         relative_path=relative_path,
-                        target_format=target_format,
+                        target_format=rule.target_format,
                         output_path=output_path,
+                        sample_rate_hz=rule.sample_rate_hz,
+                        bitrate_kbps=rule.bitrate_kbps,
                     )
                 )
     return jobs, warnings
@@ -156,7 +213,7 @@ def build_transcode_jobs(
 def run_transcode_batch(
     input_paths: Iterable[pathlib.Path],
     output_dir: pathlib.Path,
-    rules: Iterable[dict[str, str] | TranscodeRule],
+    rules: Iterable[dict[str, Any] | TranscodeRule],
     *,
     recursive: bool = True,
     max_workers: int = 2,
@@ -215,6 +272,8 @@ def run_transcode_batch(
                     "input_path": str(job.input_path),
                     "output_path": str(job.output_path),
                     "target_format": job.target_format,
+                    "sample_rate_hz": job.sample_rate_hz,
+                    "bitrate_kbps": job.bitrate_kbps,
                     "queued": queued,
                     "running": running,
                     "completed": completed,
@@ -222,13 +281,21 @@ def run_transcode_batch(
             )
         job_started = time.perf_counter()
         try:
-            transcode_file(job.input_path, job.output_path, job.target_format)
+            transcode_file(
+                job.input_path,
+                job.output_path,
+                job.target_format,
+                sample_rate_hz=job.sample_rate_hz,
+                bitrate_kbps=job.bitrate_kbps,
+            )
             elapsed = time.perf_counter() - job_started
             result = {
                 "ok": True,
                 "input_path": str(job.input_path),
                 "output_path": str(job.output_path),
                 "target_format": job.target_format,
+                "sample_rate_hz": job.sample_rate_hz,
+                "bitrate_kbps": job.bitrate_kbps,
                 "elapsed_sec": round(elapsed, 3),
             }
             sink("job_succeeded", result)
@@ -240,6 +307,8 @@ def run_transcode_batch(
                 "input_path": str(job.input_path),
                 "output_path": str(job.output_path),
                 "target_format": job.target_format,
+                "sample_rate_hz": job.sample_rate_hz,
+                "bitrate_kbps": job.bitrate_kbps,
                 "elapsed_sec": round(elapsed, 3),
                 "reason": str(exc),
             }

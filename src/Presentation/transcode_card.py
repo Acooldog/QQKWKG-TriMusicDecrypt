@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -18,6 +19,8 @@ from PySide6.QtWidgets import (
 
 from src.Application.transcode_batch_service import (
     ALL_SOURCE_FORMAT,
+    TRANSCODE_BITRATE_OPTIONS,
+    TRANSCODE_SAMPLE_RATE_OPTIONS,
     TRANSCODE_SOURCE_FORMATS,
     TRANSCODE_TARGET_FORMATS,
 )
@@ -71,9 +74,13 @@ class _RuleRow(QFrame):
 
     def __init__(self) -> None:
         super().__init__()
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(8)
+
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        top_row.setSpacing(8)
 
         self.source_combo = QComboBox()
         self.source_combo.addItems(list(TRANSCODE_SOURCE_FORMATS))
@@ -82,23 +89,70 @@ class _RuleRow(QFrame):
         self.add_button = _RoundButton("+")
         self.remove_button = _RoundButton("-", danger=True)
 
-        layout.addWidget(QLabel("输入格式"))
-        layout.addWidget(self.source_combo, 1)
-        layout.addWidget(QLabel("输出格式"))
-        layout.addWidget(self.target_combo, 1)
-        layout.addWidget(self.add_button)
-        layout.addWidget(self.remove_button)
+        top_row.addWidget(QLabel("输入格式"))
+        top_row.addWidget(self.source_combo, 1)
+        top_row.addWidget(QLabel("输出格式"))
+        top_row.addWidget(self.target_combo, 1)
+        top_row.addWidget(self.add_button)
+        top_row.addWidget(self.remove_button)
+
+        option_grid = QGridLayout()
+        option_grid.setContentsMargins(0, 0, 0, 0)
+        option_grid.setHorizontalSpacing(10)
+        option_grid.setVerticalSpacing(6)
+
+        self.sample_rate_checkbox = QCheckBox("指定采样率")
+        self.sample_rate_combo = QComboBox()
+        self.sample_rate_combo.addItems([str(item) for item in TRANSCODE_SAMPLE_RATE_OPTIONS])
+        self.sample_rate_combo.setCurrentText("44100")
+
+        self.bitrate_checkbox = QCheckBox("指定比特率")
+        self.bitrate_combo = QComboBox()
+        self.bitrate_combo.addItems([str(item) for item in TRANSCODE_BITRATE_OPTIONS])
+        self.bitrate_combo.setCurrentText("256")
+
+        option_grid.addWidget(self.sample_rate_checkbox, 0, 0)
+        option_grid.addWidget(self.sample_rate_combo, 0, 1)
+        option_grid.addWidget(QLabel("Hz"), 0, 2)
+        option_grid.addWidget(self.bitrate_checkbox, 0, 3)
+        option_grid.addWidget(self.bitrate_combo, 0, 4)
+        option_grid.addWidget(QLabel("kbps"), 0, 5)
+
+        self.tip_label = QLabel("采样率适用于所有输出格式；比特率主要对 m4a / mp3 生效。")
+        self.tip_label.setObjectName("MutedText")
+        self.tip_label.setWordWrap(True)
+
+        root.addLayout(top_row)
+        root.addLayout(option_grid)
+        root.addWidget(self.tip_label)
 
         self.add_button.clicked.connect(self.add_requested.emit)
         self.remove_button.clicked.connect(lambda: self.remove_requested.emit(self))
+        self.sample_rate_checkbox.toggled.connect(self._refresh_option_controls)
+        self.bitrate_checkbox.toggled.connect(self._refresh_option_controls)
+        self._refresh_option_controls()
 
-    def value(self) -> dict[str, str]:
+    def _refresh_option_controls(self) -> None:
+        self.sample_rate_combo.setEnabled(self.sample_rate_checkbox.isChecked())
+        self.bitrate_combo.setEnabled(self.bitrate_checkbox.isChecked())
+
+    def value(self) -> dict[str, Any]:
+        sample_rate_hz = int(self.sample_rate_combo.currentText()) if self.sample_rate_checkbox.isChecked() else None
+        bitrate_kbps = int(self.bitrate_combo.currentText()) if self.bitrate_checkbox.isChecked() else None
         return {
             "source_format": self.source_combo.currentText().strip() or ALL_SOURCE_FORMAT,
             "target_format": self.target_combo.currentText().strip() or "m4a",
+            "sample_rate_hz": sample_rate_hz,
+            "bitrate_kbps": bitrate_kbps,
         }
 
-    def set_value(self, source_format: str, target_format: str) -> None:
+    def set_value(
+        self,
+        source_format: str,
+        target_format: str,
+        sample_rate_hz: int | None = None,
+        bitrate_kbps: int | None = None,
+    ) -> None:
         if source_format in [self.source_combo.itemText(i) for i in range(self.source_combo.count())]:
             self.source_combo.setCurrentText(source_format)
         else:
@@ -107,6 +161,17 @@ class _RuleRow(QFrame):
             self.target_combo.setCurrentText(target_format)
         else:
             self.target_combo.setCurrentText("m4a")
+        if sample_rate_hz and str(sample_rate_hz) in [self.sample_rate_combo.itemText(i) for i in range(self.sample_rate_combo.count())]:
+            self.sample_rate_checkbox.setChecked(True)
+            self.sample_rate_combo.setCurrentText(str(sample_rate_hz))
+        else:
+            self.sample_rate_checkbox.setChecked(False)
+        if bitrate_kbps and str(bitrate_kbps) in [self.bitrate_combo.itemText(i) for i in range(self.bitrate_combo.count())]:
+            self.bitrate_checkbox.setChecked(True)
+            self.bitrate_combo.setCurrentText(str(bitrate_kbps))
+        else:
+            self.bitrate_checkbox.setChecked(False)
+        self._refresh_option_controls()
 
 
 class TranscodeBatchCard(QFrame):
@@ -127,7 +192,7 @@ class TranscodeBatchCard(QFrame):
 
         title = QLabel("批量转码")
         title.setObjectName("SectionTitle")
-        subtitle = QLabel("使用软件内置 ffmpeg 进行批量转码。支持多个输入目录和多条格式规则，任务会按队列并发执行。")
+        subtitle = QLabel("使用软件内置 ffmpeg 进行批量转码。支持多个输入目录、多条格式规则，以及可选的采样率和比特率设置。")
         subtitle.setObjectName("MutedText")
         subtitle.setWordWrap(True)
 
@@ -166,7 +231,7 @@ class TranscodeBatchCard(QFrame):
         rule_layout = QVBoxLayout(rule_page)
         rule_layout.setContentsMargins(10, 10, 10, 10)
         rule_layout.setSpacing(10)
-        rule_tip = QLabel("“全部”表示把所有支持的输入格式都转成指定输出格式。可以添加多条规则并行处理。")
+        rule_tip = QLabel("“全部”表示把所有支持的输入格式都转成指定输出格式。你也可以为每条规则单独启用采样率或比特率。")
         rule_tip.setObjectName("MutedText")
         rule_tip.setWordWrap(True)
         rule_layout.addWidget(rule_tip)
@@ -215,9 +280,15 @@ class TranscodeBatchCard(QFrame):
         self.input_rows_layout.addWidget(row)
         self._refresh_row_controls()
 
-    def add_rule_row(self, source_format: str = ALL_SOURCE_FORMAT, target_format: str = "m4a") -> None:
+    def add_rule_row(
+        self,
+        source_format: str = ALL_SOURCE_FORMAT,
+        target_format: str = "m4a",
+        sample_rate_hz: int | None = None,
+        bitrate_kbps: int | None = None,
+    ) -> None:
         row = _RuleRow()
-        row.set_value(source_format, target_format)
+        row.set_value(source_format, target_format, sample_rate_hz, bitrate_kbps)
         row.add_requested.connect(lambda: self.add_rule_row())
         row.remove_requested.connect(self._remove_rule_row)
         self._rule_rows.append(row)
@@ -245,18 +316,23 @@ class TranscodeBatchCard(QFrame):
         if 0 <= index < len(self._input_rows):
             self._input_rows[index].set_text(value)
 
-    def set_rules(self, rules: list[dict[str, str]]) -> None:
+    def set_rules(self, rules: list[dict[str, Any]]) -> None:
         for row in list(self._rule_rows):
             self.rule_rows_layout.removeWidget(row)
             row.deleteLater()
         self._rule_rows.clear()
         if not rules:
-            rules = [{"source_format": ALL_SOURCE_FORMAT, "target_format": "m4a"}]
+            rules = [{"source_format": ALL_SOURCE_FORMAT, "target_format": "m4a", "sample_rate_hz": None, "bitrate_kbps": None}]
         for item in rules:
-            self.add_rule_row(str(item.get("source_format", ALL_SOURCE_FORMAT)), str(item.get("target_format", "m4a")))
+            self.add_rule_row(
+                str(item.get("source_format", ALL_SOURCE_FORMAT)),
+                str(item.get("target_format", "m4a")),
+                int(item.get("sample_rate_hz")) if item.get("sample_rate_hz") not in (None, "", False) else None,
+                int(item.get("bitrate_kbps")) if item.get("bitrate_kbps") not in (None, "", False) else None,
+            )
         self._refresh_row_controls()
 
-    def rules(self) -> list[dict[str, str]]:
+    def rules(self) -> list[dict[str, Any]]:
         return [row.value() for row in self._rule_rows]
 
     def set_output_dir(self, value: str) -> None:
@@ -282,6 +358,10 @@ class TranscodeBatchCard(QFrame):
         for row in self._rule_rows:
             row.source_combo.setEnabled(not self._running)
             row.target_combo.setEnabled(not self._running)
+            row.sample_rate_checkbox.setEnabled(not self._running)
+            row.sample_rate_combo.setEnabled(not self._running and row.sample_rate_checkbox.isChecked())
+            row.bitrate_checkbox.setEnabled(not self._running)
+            row.bitrate_combo.setEnabled(not self._running and row.bitrate_checkbox.isChecked())
             row.add_button.setEnabled(not self._running)
             row.remove_button.setEnabled(not self._running and len(self._rule_rows) > 1)
         self.output_edit.setEnabled(not self._running)
@@ -293,33 +373,32 @@ class TranscodeBatchCard(QFrame):
             total_jobs = int(payload.get("total_jobs", 0) or 0)
             worker_count = int(payload.get("worker_count", 0) or 0)
             self.status_label.setText("状态：已生成转码计划")
-            self.summary_label.setText(
-                f"队列：共 {total_jobs} 个任务，并发 {worker_count} 路"
-            )
+            self.summary_label.setText(f"队列：共 {total_jobs} 个任务，并发 {worker_count} 路")
             self.detail_label.setText(f"说明：输出目录 {payload.get('output_dir', '')}")
         elif event_name == "warning":
             self.detail_label.setText(f"说明：{payload.get('message', '')}")
         elif event_name == "job_started":
+            target = str(payload.get("target_format", "") or "")
+            sample_rate = payload.get("sample_rate_hz")
+            bitrate = payload.get("bitrate_kbps")
+            extras: list[str] = []
+            if sample_rate:
+                extras.append(f"{sample_rate} Hz")
+            if bitrate:
+                extras.append(f"{bitrate} kbps")
+            extra_text = f"（{' / '.join(extras)}）" if extras else ""
             self.status_label.setText("状态：正在转码")
-            self.detail_label.setText(
-                f"说明：{payload.get('input_path', '')} -> {payload.get('target_format', '')}"
-            )
+            self.detail_label.setText(f"说明：{payload.get('input_path', '')} -> {target}{extra_text}")
         elif event_name == "queue_progress":
             queued = int(payload.get("queued", 0) or 0)
             running = int(payload.get("running", 0) or 0)
             completed = int(payload.get("completed", 0) or 0)
             total_jobs = int(payload.get("total_jobs", 0) or 0)
-            self.summary_label.setText(
-                f"队列：待处理 {queued}，执行中 {running}，已完成 {completed} / {total_jobs}"
-            )
+            self.summary_label.setText(f"队列：待处理 {queued}，执行中 {running}，已完成 {completed} / {total_jobs}")
         elif event_name == "job_succeeded":
-            self.detail_label.setText(
-                f"说明：已完成 {payload.get('output_path', '')}（{payload.get('elapsed_sec', 0)}s）"
-            )
+            self.detail_label.setText(f"说明：已完成 {payload.get('output_path', '')}（{payload.get('elapsed_sec', 0)}s）")
         elif event_name == "job_failed":
-            self.detail_label.setText(
-                f"说明：失败 {payload.get('input_path', '')}：{payload.get('reason', '')}"
-            )
+            self.detail_label.setText(f"说明：失败 {payload.get('input_path', '')}，原因：{payload.get('reason', '')}")
         elif event_name == "batch_finished":
             self.status_label.setText("状态：转码完成")
             self.summary_label.setText(

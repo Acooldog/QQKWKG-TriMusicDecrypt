@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.Application.models import BatchRunConfig, BatchSummary, FileResult, PlatformAdapter, TIMING_STAGE_KEYS
+from src.Application.transcode_batch_service import normalize_bitrate, normalize_sample_rate
 from src.Infrastructure.cover_art_service import CoverArtService
 from src.Infrastructure.output_manifest_repository import OutputManifestRepository
 from src.Infrastructure.runtime_logging import setup_logger, timing_text, write_batch_reports
@@ -98,6 +99,13 @@ def _transcode_enabled(settings: dict[str, Any]) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "y", "on"}
     return bool(value)
+
+
+def _transcode_audio_profile(settings: dict[str, Any]) -> tuple[int | None, int | None]:
+    return (
+        normalize_sample_rate(settings.get("transcode_sample_rate_hz")),
+        normalize_bitrate(settings.get("transcode_bitrate_kbps")),
+    )
 
 
 def _maybe_attach_cover(
@@ -337,14 +345,22 @@ def _publish_file(source_path: pathlib.Path, target_path: pathlib.Path) -> pathl
     return target_path
 
 
-def _maybe_transcode(logger: logging.Logger, input_path: pathlib.Path, target_format: str, current_path: pathlib.Path, detected_container: str, file_timing: dict[str, float]) -> tuple[pathlib.Path, str, dict[str, Any] | None]:
+def _maybe_transcode(logger: logging.Logger, input_path: pathlib.Path, target_format: str, current_path: pathlib.Path, detected_container: str, file_timing: dict[str, float], *, sample_rate_hz: int | None = None, bitrate_kbps: int | None = None) -> tuple[pathlib.Path, str, dict[str, Any] | None]:
     target_format = normalize_target_format(target_format)
     if target_format == "auto" or detected_container == "bin" or target_format == detected_container:
         return current_path, detected_container, None
     started = time.perf_counter()
     target_path = current_path.with_suffix(f".{target_format}")
-    logger.info("transcoding: %s -> %s", current_path.name, target_path.suffix)
-    meta = transcode_file(current_path, target_path, target_format)
+    profile_parts: list[str] = []
+    if sample_rate_hz:
+        profile_parts.append(f"{sample_rate_hz}Hz")
+    if bitrate_kbps:
+        profile_parts.append(f"{bitrate_kbps}kbps")
+    profile_text = ""
+    if profile_parts:
+        profile_text = " [" + " / ".join(profile_parts) + "]"
+    logger.info("transcoding: %s -> %s%s", current_path.name, target_path.suffix, profile_text)
+    meta = transcode_file(current_path, target_path, target_format, sample_rate_hz=sample_rate_hz, bitrate_kbps=bitrate_kbps)
     logger.info("transcoding_ffmpeg: %s", meta.get("ffmpeg_path", ""))
     if current_path.exists():
         current_path.unlink()
@@ -499,6 +515,8 @@ def _finalize_prepared_artifact(
     prepared: _PreparedArtifact,
     *,
     should_transcode: bool,
+    transcode_sample_rate_hz: int | None,
+    transcode_bitrate_kbps: int | None,
     file_started: float,
 ) -> tuple[str, FileResult]:
     working_path = prepared.working_path
@@ -513,6 +531,8 @@ def _finalize_prepared_artifact(
                 working_path,
                 prepared.detected_container,
                 prepared.file_timing,
+                sample_rate_hz=transcode_sample_rate_hz,
+                bitrate_kbps=transcode_bitrate_kbps,
             )
             _emit_event(
                 config,
@@ -736,6 +756,7 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
     failed_count = 0
     stopped_early = False
     transcode_enabled = _transcode_enabled(config.settings)
+    transcode_sample_rate_hz, transcode_bitrate_kbps = _transcode_audio_profile(config.settings)
 
     for index, file_path in enumerate(files, start=1):
         if _is_stop_requested(config):
@@ -930,6 +951,8 @@ def run_batch(config: BatchRunConfig, adapter: PlatformAdapter) -> int:
             manifest_repo,
             prepared,
             should_transcode=should_transcode,
+            transcode_sample_rate_hz=transcode_sample_rate_hz,
+            transcode_bitrate_kbps=transcode_bitrate_kbps,
             file_started=prepared.file_started,
         )
         finalized_count += 1

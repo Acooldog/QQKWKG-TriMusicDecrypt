@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import base64
 import json
@@ -315,7 +315,28 @@ def _stream_selection_args(target_format: str) -> list[str]:
     return []
 
 
-def transcode_file(input_path: pathlib.Path, output_path: pathlib.Path, target_format: str) -> dict[str, str | int]:
+def _audio_option_args(
+    target_format: str,
+    *,
+    sample_rate_hz: int | None = None,
+    bitrate_kbps: int | None = None,
+) -> list[str]:
+    args: list[str] = []
+    if sample_rate_hz:
+        args.extend(["-ar", str(int(sample_rate_hz))])
+    if bitrate_kbps and target_format in {"mp3", "m4a"}:
+        args.extend(["-b:a", f"{int(bitrate_kbps)}k"])
+    return args
+
+
+def transcode_file(
+    input_path: pathlib.Path,
+    output_path: pathlib.Path,
+    target_format: str,
+    *,
+    sample_rate_hz: int | None = None,
+    bitrate_kbps: int | None = None,
+) -> dict[str, str | int | None]:
     paths = RuntimePaths.discover()
     ffmpeg_path = resolve_ffmpeg_path(paths)
     if ffmpeg_path is None:
@@ -332,6 +353,11 @@ def transcode_file(input_path: pathlib.Path, output_path: pathlib.Path, target_f
         str(input_path),
         *_stream_selection_args(target_format),
         *_codec_args(target_format),
+        *_audio_option_args(
+            target_format,
+            sample_rate_hz=sample_rate_hz,
+            bitrate_kbps=bitrate_kbps,
+        ),
         str(temp_output),
     ]
     try:
@@ -498,3 +524,5 @@ def attach_cover(input_path: pathlib.Path, output_path: pathlib.Path, cover_path
                 temp_output.unlink()
             except OSError:
                 pass
+
+

@@ -56,6 +56,8 @@ from src.Infrastructure.config_repository import (
     save_config,
     save_default_config_if_missing,
     supported_transcode_formats,
+    TRANSCODE_BITRATE_OPTIONS,
+    TRANSCODE_SAMPLE_RATE_OPTIONS,
 )
 from src.Infrastructure.platforms.registry import build_platform_adapter
 from src.Infrastructure.runtime_paths import RuntimePaths
@@ -106,6 +108,18 @@ USAGE_TIPS: list[dict[str, str]] = [
             "2. 再重新下载需要解密的歌曲。\n"
             "3. 尽量不要混用旧版本客户端下载的缓存和新版本客户端下载的缓存。\n"
             "4. 如果出现“容器无法识别”“导出失败”，优先先重下该文件再测试。"
+        ),
+    },
+        {
+        "id": "transcode_profile_enable_rule",
+        "title": "转码参数生效条件",
+        "summary": "只有勾选“解密成功后进行转码”时，采样率和比特率设置才会生效。",
+        "detail": (
+            "平台解密页里的格式规则、采样率和比特率，都属于转码阶段配置。\n\n"
+            "规则如下：\n"
+            "1. 勾选“解密成功后进行转码”后，才会按格式规则和音频参数调用 ffmpeg。\n"
+            "2. 未勾选时，会直接保留解密后的原始格式输出，不会改动原始音频。\n"
+            "3. 采样率和比特率只对转码产物生效，不会改写原始解密文件。"
         ),
     }
 ]
@@ -881,16 +895,18 @@ class PlatformCard(QFrame):
         self._format_widgets: dict[str, QComboBox] = {}
         self._extra_fields: dict[str, PathField] = {}
         self._radio_groups: dict[str, tuple[QButtonGroup, dict[str, QRadioButton]]] = {}
+        self._transcode_profile_toggles: dict[str, QCheckBox] = {}
+        self._transcode_profile_combos: dict[str, QComboBox] = {}
         self._batch_report_json = ""
         self._batch_report_txt = ""
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(18, 18, 18, 18)
-        root.setSpacing(14)
+        root.setContentsMargins(14, 14, 14, 14)
+        root.setSpacing(10)
 
         header = QVBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
-        header.setSpacing(4)
+        header.setSpacing(3)
         title_label = QLabel(title)
         title_label.setObjectName("CardTitle")
         subtitle_label = QLabel(subtitle)
@@ -904,15 +920,16 @@ class PlatformCard(QFrame):
         root.addWidget(self.input_field)
 
         self.form_layout = QGridLayout()
-        self.form_layout.setHorizontalSpacing(12)
-        self.form_layout.setVerticalSpacing(12)
+        self.form_layout.setHorizontalSpacing(10)
+        self.form_layout.setVerticalSpacing(8)
+        self.form_layout.setColumnStretch(1, 1)
         root.addLayout(self.form_layout)
 
         self.transcode_frame = QFrame()
         self.transcode_frame.setObjectName("ConfigCard")
         self.transcode_layout_root = QVBoxLayout(self.transcode_frame)
-        self.transcode_layout_root.setContentsMargins(14, 12, 14, 12)
-        self.transcode_layout_root.setSpacing(10)
+        self.transcode_layout_root.setContentsMargins(12, 10, 12, 10)
+        self.transcode_layout_root.setSpacing(8)
         self.transcode_title = QLabel("转码设置")
         self.transcode_title.setObjectName("SectionTitle")
         self.transcode_checkbox = QCheckBox("解密成功后进行转码")
@@ -920,8 +937,9 @@ class PlatformCard(QFrame):
         self.transcode_hint.setObjectName("MutedText")
         self.transcode_hint.setWordWrap(True)
         self.transcode_form_layout = QGridLayout()
-        self.transcode_form_layout.setHorizontalSpacing(12)
-        self.transcode_form_layout.setVerticalSpacing(10)
+        self.transcode_form_layout.setHorizontalSpacing(10)
+        self.transcode_form_layout.setVerticalSpacing(8)
+        self.transcode_form_layout.setColumnStretch(1, 1)
         self.transcode_layout_root.addWidget(self.transcode_title)
         self.transcode_layout_root.addWidget(self.transcode_checkbox)
         self.transcode_layout_root.addWidget(self.transcode_hint)
@@ -931,8 +949,8 @@ class PlatformCard(QFrame):
         status_box = QFrame()
         status_box.setObjectName("StatusBox")
         status_layout = QVBoxLayout(status_box)
-        status_layout.setContentsMargins(12, 12, 12, 12)
-        status_layout.setSpacing(6)
+        status_layout.setContentsMargins(10, 10, 10, 10)
+        status_layout.setSpacing(4)
         self.status_label = QLabel("状态：空闲")
         self.message_label = QLabel("等待任务")
         self.count_label = QLabel("统计：成功 0，跳过 0，失败 0")
@@ -960,7 +978,7 @@ class PlatformCard(QFrame):
 
         button_row = QHBoxLayout()
         button_row.setContentsMargins(0, 0, 0, 0)
-        button_row.setSpacing(10)
+        button_row.setSpacing(8)
         self.run_button = QPushButton("开始该平台任务")
         self.run_button.setObjectName("PrimaryButton")
         self.run_button.clicked.connect(
@@ -992,6 +1010,64 @@ class PlatformCard(QFrame):
         self.transcode_form_layout.addWidget(label_widget, row, 0)
         self.transcode_form_layout.addWidget(combo, row, 1)
         self._format_widgets[key] = combo
+
+    def add_transcode_profile_controls(self) -> None:
+        if self._transcode_profile_combos:
+            return
+        self._add_optional_transcode_combo("sample_rate_hz", "指定采样率", [str(value) for value in TRANSCODE_SAMPLE_RATE_OPTIONS], suffix="Hz")
+        self._add_optional_transcode_combo("bitrate_kbps", "指定比特率", [str(value) for value in TRANSCODE_BITRATE_OPTIONS], suffix="kbps")
+        self._update_transcode_controls()
+
+    def _add_optional_transcode_combo(self, key: str, label: str, values: list[str], *, suffix: str) -> None:
+        wrapper = QWidget()
+        wrapper_layout = QHBoxLayout(wrapper)
+        wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        wrapper_layout.setSpacing(10)
+        toggle = QCheckBox(label)
+        combo = GuardedComboBox()
+        combo.setObjectName("ComboBox")
+        for value in values:
+            combo.addItem(f"{value} {suffix}", value)
+        combo.setMinimumWidth(150)
+        wrapper_layout.addWidget(toggle)
+        wrapper_layout.addWidget(combo, 1)
+        row = self.transcode_form_layout.rowCount()
+        self.transcode_form_layout.addWidget(wrapper, row, 0, 1, 2)
+        self._transcode_profile_toggles[key] = toggle
+        self._transcode_profile_combos[key] = combo
+        toggle.toggled.connect(self._update_transcode_controls)
+
+    def set_transcode_profile(self, *, sample_rate_hz: int | None, bitrate_kbps: int | None) -> None:
+        self._set_optional_profile_value("sample_rate_hz", sample_rate_hz)
+        self._set_optional_profile_value("bitrate_kbps", bitrate_kbps)
+        self._update_transcode_controls()
+
+    def _set_optional_profile_value(self, key: str, value: int | None) -> None:
+        toggle = self._transcode_profile_toggles[key]
+        combo = self._transcode_profile_combos[key]
+        if value is None:
+            toggle.setChecked(False)
+            combo.setCurrentIndex(0)
+            return
+        index = combo.findData(str(int(value)))
+        toggle.setChecked(True)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+
+    def transcode_sample_rate_hz(self) -> int | None:
+        return self._optional_profile_value("sample_rate_hz")
+
+    def transcode_bitrate_kbps(self) -> int | None:
+        return self._optional_profile_value("bitrate_kbps")
+
+    def _optional_profile_value(self, key: str) -> int | None:
+        toggle = self._transcode_profile_toggles.get(key)
+        combo = self._transcode_profile_combos.get(key)
+        if toggle is None or combo is None or not toggle.isChecked():
+            return None
+        data = combo.currentData()
+        if data in (None, ""):
+            return None
+        return int(data)
 
     def add_extra_field(self, key: str, label: str, *, directory: bool) -> PathField:
         field = PathField(label, directory=directory)
@@ -1071,10 +1147,14 @@ class PlatformCard(QFrame):
     def _update_transcode_controls(self) -> None:
         enabled = self.transcode_checkbox.isChecked()
         self.set_formats_enabled(enabled)
+        for key, toggle in self._transcode_profile_toggles.items():
+            combo = self._transcode_profile_combos[key]
+            toggle.setEnabled(enabled)
+            combo.setEnabled(enabled and toggle.isChecked())
         if enabled:
-            self.transcode_hint.setText("已启用转码。解密成功后会按下方格式设置统一转码。")
+            self.transcode_hint.setText("???????????????????????????????")
         else:
-            self.transcode_hint.setText("未启用转码。当前平台只输出解密后的原始格式。")
+            self.transcode_hint.setText("??????????????????????")
 
     def detail_paths(self) -> tuple[str, str]:
         return self._batch_report_json, self._batch_report_txt
@@ -1334,7 +1414,14 @@ class MainWindow(QWidget):
             page_layout = QVBoxLayout(page)
             page_layout.setContentsMargins(10, 10, 10, 10)
             page_layout.setSpacing(0)
-            page_layout.addWidget(card)
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(0)
+            row.addStretch(1)
+            card.setMaximumWidth(820)
+            row.addWidget(card)
+            row.addStretch(1)
+            page_layout.addLayout(row)
             page_layout.addStretch(1)
             self._tab_platform_ids.append(card.platform_id)
             self.platform_tabs.addTab(page, title_text)
@@ -1343,6 +1430,7 @@ class MainWindow(QWidget):
         qq_card.add_format_combo("mflac", "mflac 输出格式", QQ_RULE_FORMATS)
         qq_card.add_format_combo("mgg", "mgg 输出格式", QQ_RULE_FORMATS)
         qq_card.add_format_combo("mmp4", "mmp4 输出格式", QQ_RULE_FORMATS)
+        qq_card.add_transcode_profile_controls()
         add_platform_tab(qq_card, "QQ音乐")
         qq_card.add_extra_field("output_dir", "当前平台输出目录", directory=True)
         self._cards["qq"] = qq_card
@@ -1352,6 +1440,7 @@ class MainWindow(QWidget):
         kuwo_card.add_format_combo("format_kwm", "kwm 输出格式", FORMATS)
         kuwo_card.add_extra_field("exe_path", "酷我程序路径（可选）", directory=False)
         kuwo_card.add_extra_field("signature_file", "签名文件路径", directory=False)
+        kuwo_card.add_transcode_profile_controls()
         add_platform_tab(kuwo_card, "酷我音乐")
         kuwo_card.add_extra_field("output_dir", "当前平台输出目录", directory=True)
         self._cards["kuwo"] = kuwo_card
@@ -1364,12 +1453,14 @@ class MainWindow(QWidget):
             "key_file", "kugou_key.xz 路径", directory=False)
         kugou_card.add_extra_field(
             "kgg_db_path", "KGMusicV3.db 路径", directory=False)
+        kugou_card.add_transcode_profile_controls()
         add_platform_tab(kugou_card, "酷狗音乐")
         kugou_card.add_extra_field("output_dir", "当前平台输出目录", directory=True)
         self._cards["kugou"] = kugou_card
 
         netease_card = PlatformCard("netease", "网易云音乐", "文件级离线解密，直接处理 .ncm 文件，不要求网易云音乐运行。")
         netease_card.add_format_combo("target_format_ncm", "ncm 输出格式", FORMATS)
+        netease_card.add_transcode_profile_controls()
         add_platform_tab(netease_card, "网易云音乐")
         netease_card.add_extra_field("output_dir", "当前平台输出目录", directory=True)
         self._cards["netease"] = netease_card
@@ -1465,12 +1556,14 @@ class MainWindow(QWidget):
         self._cards["qq"].set_format_value("mmp4", str(
             (qq.get("format_rules") or {}).get("mmp4", "m4a")))
         self._cards["qq"].set_transcode_enabled(bool(qq.get("transcode_enabled", True)))
+        self._cards["qq"].set_transcode_profile(sample_rate_hz=qq.get("transcode_sample_rate_hz"), bitrate_kbps=qq.get("transcode_bitrate_kbps"))
         kuwo = self.config["kuwo"]
         self._cards["qq"].extra_field("output_dir").setText(str(qq.get("output_dir", pathlib.Path(self.paths.output_dir) / "qq")))
         self._cards["kuwo"].input_field.setText(str(kuwo.get("input_dir", "")))
         self._cards["kuwo"].set_format_value(
             "format_kwm", str(kuwo.get("format_kwm", "auto")))
         self._cards["kuwo"].set_transcode_enabled(bool(kuwo.get("transcode_enabled", True)))
+        self._cards["kuwo"].set_transcode_profile(sample_rate_hz=kuwo.get("transcode_sample_rate_hz"), bitrate_kbps=kuwo.get("transcode_bitrate_kbps"))
         self._cards["kuwo"].extra_field("exe_path").setText(
             str(kuwo.get("exe_path", "")))
         self._cards["kuwo"].extra_field("signature_file").setText(
@@ -1486,6 +1579,7 @@ class MainWindow(QWidget):
         self._cards["kugou"].set_format_value(
             "target_format_kgg", str(kugou.get("target_format_kgg", "auto")))
         self._cards["kugou"].set_transcode_enabled(bool(kugou.get("transcode_enabled", True)))
+        self._cards["kugou"].set_transcode_profile(sample_rate_hz=kugou.get("transcode_sample_rate_hz"), bitrate_kbps=kugou.get("transcode_bitrate_kbps"))
         self._cards["kugou"].extra_field("key_file").setText(
             str(kugou.get("key_file", "")))
         self._cards["kugou"].extra_field("kgg_db_path").setText(
@@ -1498,6 +1592,7 @@ class MainWindow(QWidget):
         self._cards["netease"].set_format_value(
             "target_format_ncm", str(netease.get("target_format_ncm", "auto")))
         self._cards["netease"].set_transcode_enabled(bool(netease.get("transcode_enabled", True)))
+        self._cards["netease"].set_transcode_profile(sample_rate_hz=netease.get("transcode_sample_rate_hz"), bitrate_kbps=netease.get("transcode_bitrate_kbps"))
 
         self._cards["netease"].extra_field("output_dir").setText(
             str(netease.get("output_dir", pathlib.Path(self.paths.output_dir) / "netease")))
@@ -1524,6 +1619,8 @@ class MainWindow(QWidget):
             "output_dir": self._cards["qq"].extra_field("output_dir").text(),
             "transcode_enabled": self._cards["qq"].transcode_enabled(),
             "auto_transcode_after_decode": bool(self.config.get("qq", {}).get("auto_transcode_after_decode", False)),
+            "transcode_sample_rate_hz": self._cards["qq"].transcode_sample_rate_hz(),
+            "transcode_bitrate_kbps": self._cards["qq"].transcode_bitrate_kbps(),
             "format_rules": {
                 "mflac": self._cards["qq"].format_value("mflac"),
                 "mgg": self._cards["qq"].format_value("mgg"),
@@ -1539,6 +1636,8 @@ class MainWindow(QWidget):
             "transcode_enabled": self._cards["kuwo"].transcode_enabled(),
             "format_kwm": self._cards["kuwo"].format_value("format_kwm"),
             "auto_transcode_after_decode": bool(self.config.get("kuwo", {}).get("auto_transcode_after_decode", False)),
+            "transcode_sample_rate_hz": self._cards["kuwo"].transcode_sample_rate_hz(),
+            "transcode_bitrate_kbps": self._cards["kuwo"].transcode_bitrate_kbps(),
         }
         kugou = {
             "input_dir": self._cards["kugou"].input_field.text(),
@@ -1549,6 +1648,8 @@ class MainWindow(QWidget):
             "target_format_kgma": self._cards["kugou"].format_value("target_format_kgma"),
             "target_format_kgg": self._cards["kugou"].format_value("target_format_kgg"),
             "auto_transcode_after_decode": bool(self.config.get("kugou", {}).get("auto_transcode_after_decode", False)),
+            "transcode_sample_rate_hz": self._cards["kugou"].transcode_sample_rate_hz(),
+            "transcode_bitrate_kbps": self._cards["kugou"].transcode_bitrate_kbps(),
         }
         netease = {
             "input_dir": self._cards["netease"].input_field.text(),
@@ -1556,6 +1657,8 @@ class MainWindow(QWidget):
             "transcode_enabled": self._cards["netease"].transcode_enabled(),
             "target_format_ncm": self._cards["netease"].format_value("target_format_ncm"),
             "auto_transcode_after_decode": bool(self.config.get("netease", {}).get("auto_transcode_after_decode", False)),
+            "transcode_sample_rate_hz": self._cards["netease"].transcode_sample_rate_hz(),
+            "transcode_bitrate_kbps": self._cards["netease"].transcode_bitrate_kbps(),
         }
         transcode_batch = {
             "input_paths": self.transcode_card.input_paths(),
