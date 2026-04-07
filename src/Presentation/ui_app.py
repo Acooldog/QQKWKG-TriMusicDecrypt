@@ -1152,9 +1152,9 @@ class PlatformCard(QFrame):
             toggle.setEnabled(enabled)
             combo.setEnabled(enabled and toggle.isChecked())
         if enabled:
-            self.transcode_hint.setText("???????????????????????????????")
+            self.transcode_hint.setText("已启用转码。解密成功后会按下方格式规则与可选音频参数统一转码。")
         else:
-            self.transcode_hint.setText("??????????????????????")
+            self.transcode_hint.setText("未启用转码。当前平台只输出解密后的原始格式。")
 
     def detail_paths(self) -> tuple[str, str]:
         return self._batch_report_json, self._batch_report_txt
@@ -1422,7 +1422,6 @@ class MainWindow(QWidget):
             row.addWidget(card)
             row.addStretch(1)
             page_layout.addLayout(row)
-            page_layout.addStretch(1)
             self._tab_platform_ids.append(card.platform_id)
             self.platform_tabs.addTab(page, title_text)
 
