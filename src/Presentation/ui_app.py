@@ -1315,16 +1315,6 @@ class MainWindow(QWidget):
         banner_box.addWidget(banner_title)
         banner_box.addWidget(banner_subtitle)
         top_layout.addLayout(banner_box, 1)
-        self.header_tips_button = QPushButton("使用技巧")
-        self.header_tips_button.setObjectName("SecondaryButton")
-        self.header_output_button = QPushButton("打开输出目录")
-        self.header_output_button.setObjectName("GhostButton")
-        self.header_reload_button = QPushButton("重新读取配置")
-        self.header_reload_button.setObjectName("GhostButton")
-        top_layout.addWidget(self.header_tips_button)
-        top_layout.addWidget(self.header_output_button)
-        top_layout.addWidget(self.header_reload_button)
-        surface_layout.addWidget(top_banner)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -1537,6 +1527,7 @@ class MainWindow(QWidget):
         tabs_layout.addWidget(self.platform_tabs, 1)
 
         decrypt_page = QWidget()
+        decrypt_page.setObjectName("decrypt")
         decrypt_layout = QVBoxLayout(decrypt_page)
         decrypt_layout.setContentsMargins(0, 0, 0, 0)
         decrypt_layout.setSpacing(0)
@@ -1586,6 +1577,7 @@ class MainWindow(QWidget):
         netease_card.add_extra_field("output_dir", "当前平台输出目录", directory=True)
         self._cards["netease"] = netease_card
         settings_page = QWidget()
+        settings_page.setObjectName("settings")
         settings_layout = QVBoxLayout(settings_page)
         settings_layout.setContentsMargins(0, 0, 0, 0)
         settings_layout.setSpacing(0)
@@ -1663,6 +1655,7 @@ class MainWindow(QWidget):
         settings_splitter.setStretchFactor(1, 2)
 
         transcode_page = QWidget()
+        transcode_page.setObjectName("transcode")
         transcode_layout = QVBoxLayout(transcode_page)
         transcode_layout.setContentsMargins(0, 0, 0, 0)
         transcode_layout.setSpacing(12)
@@ -1702,6 +1695,7 @@ class MainWindow(QWidget):
         log_layout.addWidget(self.log_view, 1)
 
         logs_page = QWidget()
+        logs_page.setObjectName("logs")
         logs_layout = QVBoxLayout(logs_page)
         logs_layout.setContentsMargins(0, 0, 0, 0)
         logs_layout.setSpacing(0)
@@ -1761,6 +1755,7 @@ class MainWindow(QWidget):
         logs_splitter.setStretchFactor(1, 2)
 
         overview_page = QWidget()
+        overview_page.setObjectName("overview")
         overview_layout = QVBoxLayout(overview_page)
         overview_layout.setContentsMargins(0, 0, 0, 0)
         overview_layout.setSpacing(12)
@@ -1893,9 +1888,6 @@ class MainWindow(QWidget):
         self.save_button.clicked.connect(self._save_config_from_widgets)
         self.reload_button.clicked.connect(self._reload_config)
         self.open_output_button.clicked.connect(self._open_output_dir)
-        self.header_tips_button.clicked.connect(self._show_usage_tips)
-        self.header_output_button.clicked.connect(self._open_output_dir)
-        self.header_reload_button.clicked.connect(self._reload_config)
         for platform_id, card in self._cards.items():
             card.input_field.button.clicked.connect(
                 lambda _=False, pid=platform_id: self._choose_path(self._cards[pid].input_field))
