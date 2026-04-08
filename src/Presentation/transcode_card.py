@@ -24,13 +24,14 @@ from src.Application.transcode_batch_service import (
     TRANSCODE_SOURCE_FORMATS,
     TRANSCODE_TARGET_FORMATS,
 )
+from src.Presentation.modern_widgets import AnimatedProgressBar, StatusPill, apply_card_shadow
 
 
 class _RoundButton(QPushButton):
     def __init__(self, text: str, *, danger: bool = False) -> None:
         super().__init__(text)
         self.setObjectName("DangerRoundButton" if danger else "RoundButton")
-        self.setFixedSize(32, 32)
+        self.setFixedSize(34, 34)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
 
@@ -41,8 +42,9 @@ class _InputPathRow(QFrame):
 
     def __init__(self) -> None:
         super().__init__()
+        self.setObjectName("MiniCard")
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
 
         self.edit = QLineEdit()
@@ -66,6 +68,7 @@ class _InputPathRow(QFrame):
 
     def set_text(self, value: str) -> None:
         self.edit.setText(value)
+        self.edit.setCursorPosition(0)
 
 
 class _RuleRow(QFrame):
@@ -74,9 +77,10 @@ class _RuleRow(QFrame):
 
     def __init__(self) -> None:
         super().__init__()
+        self.setObjectName("MiniCard")
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(8)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(10)
 
         top_row = QHBoxLayout()
         top_row.setContentsMargins(0, 0, 0, 0)
@@ -117,6 +121,8 @@ class _RuleRow(QFrame):
         option_grid.addWidget(self.bitrate_checkbox, 0, 3)
         option_grid.addWidget(self.bitrate_combo, 0, 4)
         option_grid.addWidget(QLabel("kbps"), 0, 5)
+        option_grid.setColumnStretch(1, 1)
+        option_grid.setColumnStretch(4, 1)
 
         self.tip_label = QLabel("采样率适用于所有输出格式；比特率主要对 m4a / mp3 生效。")
         self.tip_label.setObjectName("MutedText")
@@ -181,20 +187,36 @@ class TranscodeBatchCard(QFrame):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setObjectName("ConfigCard")
+        self.setObjectName("WorkspaceCard")
         self._input_rows: list[_InputPathRow] = []
         self._rule_rows: list[_RuleRow] = []
         self._running = False
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(18, 16, 18, 16)
-        root.setSpacing(12)
+        root.setContentsMargins(22, 20, 22, 20)
+        root.setSpacing(14)
 
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(12)
+        header_box = QVBoxLayout()
+        header_box.setContentsMargins(0, 0, 0, 0)
+        header_box.setSpacing(4)
         title = QLabel("批量转码")
         title.setObjectName("SectionTitle")
         subtitle = QLabel("使用软件内置 ffmpeg 进行批量转码。支持多个输入目录、多条格式规则，以及可选的采样率和比特率设置。")
         subtitle.setObjectName("MutedText")
         subtitle.setWordWrap(True)
+        header_box.addWidget(title)
+        header_box.addWidget(subtitle)
+        self.status_pill = StatusPill("空闲", "idle")
+        header_row.addLayout(header_box, 1)
+        header_row.addWidget(self.status_pill, 0, Qt.AlignmentFlag.AlignTop)
+
+        self.progress_label = QLabel("任务进度：0 / 0")
+        self.progress_label.setObjectName("MutedText")
+        self.progress_bar = AnimatedProgressBar()
+        self.progress_bar.set_progress(0, 0, active=False)
 
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
@@ -253,22 +275,32 @@ class TranscodeBatchCard(QFrame):
         self.detail_label.setObjectName("MutedText")
         self.detail_label.setWordWrap(True)
 
+        state_card = QFrame()
+        state_card.setObjectName("MiniCard")
+        state_layout = QVBoxLayout(state_card)
+        state_layout.setContentsMargins(12, 12, 12, 12)
+        state_layout.setSpacing(6)
+        state_layout.addWidget(self.status_label)
+        state_layout.addWidget(self.summary_label)
+        state_layout.addWidget(self.detail_label)
+
         self.start_button = QPushButton("开始转换")
         self.start_button.setObjectName("PrimaryButton")
+        self.start_button.setMinimumHeight(42)
         self.start_button.clicked.connect(self.start_requested.emit)
 
-        root.addWidget(title)
-        root.addWidget(subtitle)
-        root.addWidget(self.tabs)
-        root.addWidget(self.status_label)
-        root.addWidget(self.summary_label)
-        root.addWidget(self.detail_label)
+        root.addLayout(header_row)
+        root.addWidget(self.progress_label)
+        root.addWidget(self.progress_bar)
+        root.addWidget(self.tabs, 1)
+        root.addWidget(state_card)
         root.addWidget(self.start_button)
 
         self.output_button.clicked.connect(self.choose_output_requested.emit)
         self.add_input_row()
         self.add_rule_row()
         self._refresh_row_controls()
+        apply_card_shadow(self)
 
     def add_input_row(self, value: str = "") -> None:
         row = _InputPathRow()
@@ -337,6 +369,7 @@ class TranscodeBatchCard(QFrame):
 
     def set_output_dir(self, value: str) -> None:
         self.output_edit.setText(value)
+        self.output_edit.setCursorPosition(0)
 
     def output_dir(self) -> str:
         return self.output_edit.text().strip()
@@ -350,6 +383,9 @@ class TranscodeBatchCard(QFrame):
     def set_running(self, running: bool) -> None:
         self._running = bool(running)
         self.start_button.setEnabled(not self._running)
+        self.status_pill.setText("运行中" if self._running else "空闲")
+        self.status_pill.set_tone("active" if self._running else "idle")
+        self.progress_bar.set_active(self._running)
         for row in self._input_rows:
             row.edit.setEnabled(not self._running)
             row.choose_button.setEnabled(not self._running)
@@ -375,8 +411,14 @@ class TranscodeBatchCard(QFrame):
             self.status_label.setText("状态：已生成转码计划")
             self.summary_label.setText(f"队列：共 {total_jobs} 个任务，并发 {worker_count} 路")
             self.detail_label.setText(f"说明：输出目录 {payload.get('output_dir', '')}")
+            self.progress_label.setText(f"任务进度：0 / {total_jobs}")
+            self.progress_bar.set_progress(0, total_jobs, active=total_jobs > 0)
+            self.status_pill.setText("待执行")
+            self.status_pill.set_tone("warning")
         elif event_name == "warning":
             self.detail_label.setText(f"说明：{payload.get('message', '')}")
+            self.status_pill.setText("注意")
+            self.status_pill.set_tone("warning")
         elif event_name == "job_started":
             target = str(payload.get("target_format", "") or "")
             sample_rate = payload.get("sample_rate_hz")
@@ -389,22 +431,36 @@ class TranscodeBatchCard(QFrame):
             extra_text = f"（{' / '.join(extras)}）" if extras else ""
             self.status_label.setText("状态：正在转码")
             self.detail_label.setText(f"说明：{payload.get('input_path', '')} -> {target}{extra_text}")
+            self.status_pill.setText("转码中")
+            self.status_pill.set_tone("active")
         elif event_name == "queue_progress":
             queued = int(payload.get("queued", 0) or 0)
             running = int(payload.get("running", 0) or 0)
             completed = int(payload.get("completed", 0) or 0)
             total_jobs = int(payload.get("total_jobs", 0) or 0)
             self.summary_label.setText(f"队列：待处理 {queued}，执行中 {running}，已完成 {completed} / {total_jobs}")
+            self.progress_label.setText(f"任务进度：{completed} / {total_jobs}")
+            self.progress_bar.set_progress(completed, total_jobs, active=(queued + running) > 0)
         elif event_name == "job_succeeded":
             self.detail_label.setText(f"说明：已完成 {payload.get('output_path', '')}（{payload.get('elapsed_sec', 0)}s）")
+            self.status_pill.setText("成功")
+            self.status_pill.set_tone("success")
         elif event_name == "job_failed":
             self.detail_label.setText(f"说明：失败 {payload.get('input_path', '')}，原因：{payload.get('reason', '')}")
+            self.status_pill.setText("失败")
+            self.status_pill.set_tone("danger")
         elif event_name == "batch_finished":
             self.status_label.setText("状态：转码完成")
             self.summary_label.setText(
                 f"队列：成功 {payload.get('success_count', 0)}，失败 {payload.get('failed_count', 0)}，总耗时 {payload.get('elapsed_sec', 0)}s"
             )
             self.detail_label.setText("说明：批量转码任务已结束")
+            total = int(payload.get('total_jobs', 0) or (int(payload.get('success_count', 0) or 0) + int(payload.get('failed_count', 0) or 0)))
+            done = int(payload.get('success_count', 0) or 0) + int(payload.get('failed_count', 0) or 0)
+            self.progress_label.setText(f"任务进度：{done} / {total}")
+            self.progress_bar.set_progress(done, total, active=False)
+            self.status_pill.setText("已完成")
+            self.status_pill.set_tone("success")
 
     def _refresh_row_controls(self) -> None:
         for row in self._input_rows:

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import logging
 import pathlib
@@ -58,7 +58,7 @@ class QQPlatformAdapter:
         info = find_process_by_name('QQMusic.exe')
         if info is None:
             info = find_process_by_substring(process_match)
-        return (info is not None, None if info is not None else 'QQ?????')
+        return (info is not None, None if info is not None else 'QQ音乐未运行')
 
     def collect_files(self, input_path: pathlib.Path, recursive: bool) -> list[pathlib.Path]:
         if input_path.is_file():

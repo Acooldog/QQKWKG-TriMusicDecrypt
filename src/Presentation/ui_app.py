@@ -61,7 +61,9 @@ from src.Infrastructure.config_repository import (
 )
 from src.Infrastructure.platforms.registry import build_platform_adapter
 from src.Infrastructure.runtime_paths import RuntimePaths
+from src.Presentation.modern_widgets import AnimatedProgressBar, MetricTile, StatusPill, apply_card_shadow
 from src.Presentation.transcode_card import TranscodeBatchCard
+from src.Presentation.window_effects import apply_win10_acrylic
 
 WINDOW_BG = "#101215"
 SHELL_BG = "#171A1F"
@@ -245,72 +247,70 @@ class NoWheelTabBar(QTabBar):
 def build_app_stylesheet() -> str:
     return f"""
     QWidget {{ color: {TEXT}; font-family: Microsoft YaHei UI; font-size: 13px; }}
-    QFrame#Shell {{ background: {SHELL_BG}; border: 1px solid {BORDER}; border-radius: 18px; }}
-    QFrame#TitleBar {{ background: transparent; border-bottom: 1px solid {BORDER}; }}
+    QWidget#RootWindow {{ background: transparent; }}
+    QFrame#Shell {{ background: rgba(17, 21, 27, 0.78); border: 1px solid rgba(88, 103, 130, 0.40); border-radius: 22px; }}
+    QFrame#TitleBar {{ background: transparent; border-bottom: 1px solid rgba(88, 103, 130, 0.22); }}
     QLabel#TitleLabel {{ font-size: 18px; font-weight: 700; }}
     QLabel#SubtitleLabel, QLabel#MutedText, QLabel#CardSubtitle, QLabel#HeroSubtitle {{ color: {TEXT_MUTED}; }}
-    QLabel#HeroTitle {{ font-size: 24px; font-weight: 700; }}
-    QLabel#SectionTitle {{ font-size: 15px; font-weight: 700; }}
-    QLabel#CardTitle {{ font-size: 16px; font-weight: 700; }}
+    QLabel#HeroTitle {{ font-size: 26px; font-weight: 700; }}
+    QLabel#SectionTitle {{ font-size: 16px; font-weight: 700; }}
+    QLabel#CardTitle {{ font-size: 17px; font-weight: 700; }}
+    QLabel#MetricValue {{ font-size: 28px; font-weight: 700; color: white; }}
     QLabel#FieldLabel {{ color: {TEXT_MUTED}; font-size: 12px; }}
-    QFrame#InfoCard, QFrame#ConfigCard, QFrame#PlatformCard, QFrame#NoticeCard {{ background: {CARD_BG}; border: 1px solid {BORDER}; border-radius: 16px; }}
-    QFrame#PlatformCard:hover {{ background: #202735; border-color: #3E5678; }}
-    QFrame#StatusBox {{ background: {CARD_ALT}; border: 1px solid {BORDER}; border-radius: 12px; }}
-    QLineEdit, QComboBox, QPlainTextEdit {{ background: #11151B; border: 1px solid {BORDER}; border-radius: 10px; padding: 8px 10px; selection-background-color: #3B82F6; }}
-    QLineEdit:hover, QComboBox:hover, QPlainTextEdit:hover {{ border-color: #3E5678; }}
+    QFrame#HeroCard {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(31, 40, 56, 0.92), stop:1 rgba(24, 32, 46, 0.88)); border: 1px solid rgba(94, 120, 158, 0.32); border-radius: 22px; }}
+    QFrame#SidebarCard, QFrame#WorkspaceCard, QFrame#InfoCard, QFrame#ConfigCard, QFrame#PlatformCard, QFrame#NoticeCard {{ background: rgba(29, 35, 45, 0.84); border: 1px solid rgba(88, 103, 130, 0.28); border-radius: 18px; }}
+    QFrame#MiniCard, QFrame#StatusBox, QFrame#MetricTile {{ background: rgba(17, 21, 27, 0.68); border: 1px solid rgba(88, 103, 130, 0.22); border-radius: 14px; }}
+    QFrame#WorkspaceCard:hover, QFrame#PlatformCard:hover {{ border-color: rgba(82, 148, 255, 0.42); background: rgba(31, 38, 50, 0.88); }}
+    QLineEdit, QComboBox, QPlainTextEdit {{ background: rgba(11, 16, 24, 0.90); border: 1px solid rgba(88, 103, 130, 0.32); border-radius: 12px; padding: 9px 12px; selection-background-color: #3B82F6; }}
+    QLineEdit:hover, QComboBox:hover, QPlainTextEdit:hover {{ border-color: rgba(82, 148, 255, 0.48); }}
     QLineEdit:focus, QComboBox:focus, QPlainTextEdit:focus {{ border: 1px solid {ACCENT}; }}
     QComboBox {{ padding-right: 34px; }}
-    QComboBox::drop-down {{ subcontrol-origin: padding; subcontrol-position: top right; width: 28px; border-left: 1px solid {BORDER}; background: #1A1F28; border-top-right-radius: 10px; border-bottom-right-radius: 10px; }}
+    QComboBox::drop-down {{ subcontrol-origin: padding; subcontrol-position: top right; width: 28px; border-left: 1px solid rgba(88, 103, 130, 0.24); background: rgba(20, 25, 33, 0.92); border-top-right-radius: 12px; border-bottom-right-radius: 12px; }}
     QComboBox::down-arrow {{ image: none; width: 0px; height: 0px; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid {TEXT_MUTED}; margin-right: 8px; }}
-    QComboBox QAbstractItemView {{ background: #11151B; color: {TEXT}; border: 1px solid #3E5678; outline: none; selection-background-color: {ACCENT}; selection-color: white; padding: 4px; }}
-    QComboBox QAbstractItemView::item {{ min-height: 28px; padding: 6px 10px; background: #11151B; color: {TEXT}; }}
+    QComboBox QAbstractItemView {{ background: rgba(11, 16, 24, 0.96); color: {TEXT}; border: 1px solid rgba(82, 148, 255, 0.45); outline: none; selection-background-color: {ACCENT}; selection-color: white; padding: 4px; }}
+    QComboBox QAbstractItemView::item {{ min-height: 30px; padding: 6px 10px; background: transparent; color: {TEXT}; }}
     QComboBox QAbstractItemView::item:selected {{ background: {ACCENT}; color: white; }}
-    QComboBox QAbstractItemView::item:hover {{ background: #223148; color: {TEXT}; }}
-    QListView#ComboPopup {{ background: #11151B; color: {TEXT}; border: 1px solid #3E5678; outline: none; selection-background-color: {ACCENT}; selection-color: white; }}
-    QListView#ComboPopup::item {{ min-height: 28px; padding: 6px 10px; background: #11151B; color: {TEXT}; }}
+    QComboBox QAbstractItemView::item:hover {{ background: rgba(43, 60, 88, 0.92); color: {TEXT}; }}
+    QListView#ComboPopup {{ background: rgba(11, 16, 24, 0.96); color: {TEXT}; border: 1px solid rgba(82, 148, 255, 0.45); outline: none; selection-background-color: {ACCENT}; selection-color: white; }}
+    QListView#ComboPopup::item {{ min-height: 30px; padding: 6px 10px; background: transparent; color: {TEXT}; }}
     QListView#ComboPopup::item:selected {{ background: {ACCENT}; color: white; }}
-    QListView#ComboPopup::item:hover {{ background: #223148; color: {TEXT}; }}
-    QPushButton {{ border-radius: 10px; padding: 8px 14px; border: 1px solid {BORDER}; background: #222834; }}
-    QPushButton#PrimaryButton {{ background: {ACCENT}; border-color: {ACCENT}; color: white; font-weight: 700; }}
-    QPushButton#SecondaryButton {{ background: #243042; border-color: #314055; }}
-    QPushButton#GhostButton {{ background: transparent; }}
-    QPushButton#DangerButton {{ background: #3B1D22; border-color: #5B2830; }}
-    QPushButton#RoundButton {{ background: #243042; border-color: #314055; font-size: 16px; font-weight: 700; padding: 0px; }}
-    QPushButton#DangerRoundButton {{ background: #3B1D22; border-color: #5B2830; font-size: 16px; font-weight: 700; padding: 0px; }}
-    QPushButton:hover {{ border-color: {ACCENT}; background: #273042; }}
-    QPushButton#PrimaryButton:hover {{ background: #4A9DF1; border-color: #4A9DF1; }}
-    QPushButton#SecondaryButton:hover {{ background: #2B3850; border-color: #476081; }}
-    QPushButton#GhostButton:hover {{ background: #1A1F28; }}
-    QPushButton#DangerButton:hover {{ background: #51242B; border-color: #7A343F; }}
-    QPushButton#RoundButton:hover {{ background: #2B3850; border-color: #476081; }}
-    QPushButton#DangerRoundButton:hover {{ background: #51242B; border-color: #7A343F; }}
-    QPushButton:pressed {{ padding-top: 9px; padding-bottom: 7px; background: #1B2230; }}
+    QListView#ComboPopup::item:hover {{ background: rgba(43, 60, 88, 0.92); color: {TEXT}; }}
+    QPushButton {{ border-radius: 12px; padding: 9px 16px; border: 1px solid rgba(88, 103, 130, 0.30); background: rgba(33, 41, 56, 0.88); }}
+    QPushButton#PrimaryButton {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2D89EF, stop:1 #4B9BFF); border-color: rgba(109, 174, 255, 0.72); color: white; font-weight: 700; }}
+    QPushButton#SecondaryButton {{ background: rgba(37, 50, 70, 0.86); border-color: rgba(88, 114, 148, 0.46); }}
+    QPushButton#GhostButton {{ background: rgba(255, 255, 255, 0.03); }}
+    QPushButton#DangerButton {{ background: rgba(86, 31, 40, 0.86); border-color: rgba(177, 74, 92, 0.56); }}
+    QPushButton#RoundButton {{ background: rgba(37, 50, 70, 0.86); border-color: rgba(88, 114, 148, 0.46); font-size: 16px; font-weight: 700; padding: 0px; }}
+    QPushButton#DangerRoundButton {{ background: rgba(86, 31, 40, 0.86); border-color: rgba(177, 74, 92, 0.56); font-size: 16px; font-weight: 700; padding: 0px; }}
+    QPushButton:hover {{ border-color: rgba(82, 148, 255, 0.60); background: rgba(42, 52, 70, 0.94); }}
+    QPushButton#PrimaryButton:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #3A93F6, stop:1 #62ACFF); border-color: rgba(130, 189, 255, 0.82); }}
+    QPushButton#DangerButton:hover {{ background: rgba(103, 39, 49, 0.92); border-color: rgba(207, 95, 113, 0.68); }}
+    QPushButton:pressed {{ background: rgba(24, 30, 40, 0.96); }}
     QPushButton#PrimaryButton:pressed {{ background: #226EBD; }}
-    QPushButton#SecondaryButton:pressed {{ background: #1F2938; }}
-    QPushButton#DangerButton:pressed {{ background: #3A181E; }}
     QCheckBox {{ spacing: 10px; }}
-    QCheckBox::indicator {{ width: 18px; height: 18px; border-radius: 5px; border: 1px solid {BORDER}; background: #11151B; }}
+    QCheckBox::indicator {{ width: 18px; height: 18px; border-radius: 6px; border: 1px solid rgba(88, 103, 130, 0.40); background: rgba(11, 16, 24, 0.92); }}
     QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
     QRadioButton {{ spacing: 8px; }}
-    QRadioButton::indicator {{ width: 16px; height: 16px; border-radius: 8px; border: 1px solid {BORDER}; background: #11151B; }}
-    QRadioButton::indicator:hover {{ border-color: #4F6483; }}
+    QRadioButton::indicator {{ width: 16px; height: 16px; border-radius: 8px; border: 1px solid rgba(88, 103, 130, 0.40); background: rgba(11, 16, 24, 0.92); }}
+    QRadioButton::indicator:hover {{ border-color: rgba(82, 148, 255, 0.48); }}
     QRadioButton::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
     QScrollArea {{ border: none; background: transparent; }}
-    QPlainTextEdit#LogView {{ background: #0D1015; border-radius: 12px; }}
+    QPlainTextEdit#LogView {{ background: rgba(9, 12, 18, 0.94); border-radius: 14px; }}
     QScrollBar:vertical {{ background: transparent; width: 10px; margin: 4px 2px 4px 2px; }}
-    QScrollBar::handle:vertical {{ background: #394557; min-height: 28px; border-radius: 5px; }}
-    QScrollBar::handle:vertical:hover {{ background: #4F6483; }}
+    QScrollBar::handle:vertical {{ background: rgba(71, 87, 110, 0.88); min-height: 28px; border-radius: 5px; }}
+    QScrollBar::handle:vertical:hover {{ background: rgba(101, 129, 166, 0.92); }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
     QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
     QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 2px 4px 2px 4px; }}
-    QScrollBar::handle:horizontal {{ background: #394557; min-width: 28px; border-radius: 5px; }}
-    QScrollBar::handle:horizontal:hover {{ background: #4F6483; }}
+    QScrollBar::handle:horizontal {{ background: rgba(71, 87, 110, 0.88); min-width: 28px; border-radius: 5px; }}
+    QScrollBar::handle:horizontal:hover {{ background: rgba(101, 129, 166, 0.92); }}
     QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0px; }}
     QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{ background: transparent; }}
-    QTabWidget::pane {{ border: 1px solid {BORDER}; border-radius: 14px; top: -1px; background: {CARD_BG}; }}
-    QTabBar::tab {{ background: #1A1F28; color: {TEXT_MUTED}; border: 1px solid {BORDER}; padding: 10px 16px; border-top-left-radius: 10px; border-top-right-radius: 10px; min-width: 96px; }}
-    QTabBar::tab:selected {{ background: {CARD_BG}; color: {TEXT}; border-color: #3E5678; }}
-    QTabBar::tab:hover:!selected {{ background: #222935; color: {TEXT}; }}
+    QTabWidget::pane {{ border: 1px solid rgba(88, 103, 130, 0.22); border-radius: 16px; top: -1px; background: rgba(27, 33, 42, 0.82); }}
+    QTabBar::tab {{ background: rgba(24, 30, 40, 0.86); color: {TEXT_MUTED}; border: 1px solid rgba(88, 103, 130, 0.22); padding: 11px 18px; border-top-left-radius: 11px; border-top-right-radius: 11px; min-width: 108px; }}
+    QTabBar::tab:selected {{ background: rgba(30, 36, 46, 0.92); color: {TEXT}; border-color: rgba(82, 148, 255, 0.42); }}
+    QTabBar::tab:hover:!selected {{ background: rgba(34, 42, 54, 0.92); color: {TEXT}; }}
+    QSplitter::handle {{ background: transparent; }}
     """
 
 
@@ -881,6 +881,7 @@ class UsageTipsDialog(QDialog):
         dialog.exec()
 
 
+
 class PlatformCard(QFrame):
     run_requested = Signal(str)
     stop_requested = Signal(str)
@@ -889,9 +890,10 @@ class PlatformCard(QFrame):
     def __init__(self, platform_id: str, title: str, subtitle: str) -> None:
         super().__init__()
         self.platform_id = platform_id
-        self.setObjectName("PlatformCard")
-        self.setSizePolicy(QSizePolicy.Policy.Expanding,
-                           QSizePolicy.Policy.Fixed)
+        self.setObjectName("WorkspaceCard")
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.setMinimumWidth(0)
+        self.setMaximumWidth(16777215)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self._format_widgets: dict[str, QComboBox] = {}
         self._extra_fields: dict[str, PathField] = {}
@@ -902,12 +904,15 @@ class PlatformCard(QFrame):
         self._batch_report_txt = ""
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(14, 14, 14, 14)
-        root.setSpacing(10)
+        root.setContentsMargins(20, 18, 20, 18)
+        root.setSpacing(12)
 
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(12)
         header = QVBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
-        header.setSpacing(3)
+        header.setSpacing(4)
         title_label = QLabel(title)
         title_label.setObjectName("CardTitle")
         subtitle_label = QLabel(subtitle)
@@ -915,7 +920,17 @@ class PlatformCard(QFrame):
         subtitle_label.setWordWrap(True)
         header.addWidget(title_label)
         header.addWidget(subtitle_label)
-        root.addLayout(header)
+        self.status_pill = StatusPill("空闲", "idle")
+        header_row.addLayout(header, 1)
+        header_row.addWidget(self.status_pill, 0, Qt.AlignmentFlag.AlignTop)
+        root.addLayout(header_row)
+
+        self.progress_caption = QLabel("当前进度：0 / 0")
+        self.progress_caption.setObjectName("MutedText")
+        self.progress_bar = AnimatedProgressBar()
+        self.progress_bar.set_progress(0, 0, active=False)
+        root.addWidget(self.progress_caption)
+        root.addWidget(self.progress_bar)
 
         self.input_field = PathField("输入目录或文件", directory=True)
         root.addWidget(self.input_field)
@@ -927,14 +942,14 @@ class PlatformCard(QFrame):
         root.addLayout(self.form_layout)
 
         self.transcode_frame = QFrame()
-        self.transcode_frame.setObjectName("ConfigCard")
+        self.transcode_frame.setObjectName("MiniCard")
         self.transcode_layout_root = QVBoxLayout(self.transcode_frame)
-        self.transcode_layout_root.setContentsMargins(12, 10, 12, 10)
+        self.transcode_layout_root.setContentsMargins(14, 12, 14, 12)
         self.transcode_layout_root.setSpacing(8)
         self.transcode_title = QLabel("转码设置")
         self.transcode_title.setObjectName("SectionTitle")
         self.transcode_checkbox = QCheckBox("解密成功后进行转码")
-        self.transcode_hint = QLabel("勾选后解锁下方格式设置；不勾选时只输出解密后的原始格式。")
+        self.transcode_hint = QLabel("未启用转码。当前平台只输出解密后的原始格式。")
         self.transcode_hint.setObjectName("MutedText")
         self.transcode_hint.setWordWrap(True)
         self.transcode_form_layout = QGridLayout()
@@ -947,16 +962,19 @@ class PlatformCard(QFrame):
         self.transcode_layout_root.addLayout(self.transcode_form_layout)
         root.addWidget(self.transcode_frame)
 
-        status_box = QFrame()
-        status_box.setObjectName("StatusBox")
-        status_layout = QVBoxLayout(status_box)
-        status_layout.setContentsMargins(10, 10, 10, 10)
-        status_layout.setSpacing(4)
+        state_card = QFrame()
+        state_card.setObjectName("MiniCard")
+        status_layout = QGridLayout(state_card)
+        status_layout.setContentsMargins(12, 12, 12, 12)
+        status_layout.setHorizontalSpacing(14)
+        status_layout.setVerticalSpacing(6)
+        status_layout.setColumnStretch(1, 1)
+        status_layout.setColumnStretch(3, 1)
         self.status_label = QLabel("状态：空闲")
-        self.message_label = QLabel("等待任务")
-        self.count_label = QLabel("统计：成功 0，跳过 0，失败 0")
-        self.progress_label = QLabel("进度：0 / 0")
+        self.message_label = QLabel("说明：等待任务")
+        self.count_label = QLabel("统计：成功 0，恢复 0，跳过 0，失败 0")
         self.file_label = QLabel("当前文件：无")
+        self.progress_label = QLabel("进度：0 / 0")
         self.timing_label = QLabel("热点：无")
         self.failed_file_label = QLabel("最近失败：无")
         self.failed_reason_label = QLabel("失败原因：无")
@@ -964,42 +982,53 @@ class PlatformCard(QFrame):
             self.status_label,
             self.message_label,
             self.count_label,
-            self.progress_label,
             self.file_label,
+            self.progress_label,
             self.timing_label,
             self.failed_file_label,
             self.failed_reason_label,
         ):
             widget.setWordWrap(True)
-            status_layout.addWidget(widget)
-        root.addWidget(status_box)
+        status_layout.addWidget(self.status_label, 0, 0, 1, 2)
+        status_layout.addWidget(self.count_label, 0, 2, 1, 2)
+        status_layout.addWidget(self.message_label, 1, 0, 1, 4)
+        status_layout.addWidget(self.file_label, 2, 0, 1, 2)
+        status_layout.addWidget(self.progress_label, 2, 2, 1, 2)
+        status_layout.addWidget(self.timing_label, 3, 0, 1, 2)
+        status_layout.addWidget(self.failed_file_label, 3, 2, 1, 2)
+        status_layout.addWidget(self.failed_reason_label, 4, 0, 1, 4)
+        root.addWidget(state_card)
 
+        footer_row = QHBoxLayout()
+        footer_row.setContentsMargins(0, 0, 0, 0)
+        footer_row.setSpacing(10)
         self.continuous_checkbox = QCheckBox("持续解密（循环扫描新文件）")
-        root.addWidget(self.continuous_checkbox)
+        footer_row.addWidget(self.continuous_checkbox)
+        footer_row.addStretch(1)
+        root.addLayout(footer_row)
 
         button_row = QHBoxLayout()
         button_row.setContentsMargins(0, 0, 0, 0)
         button_row.setSpacing(8)
         self.run_button = QPushButton("开始该平台任务")
         self.run_button.setObjectName("PrimaryButton")
-        self.run_button.clicked.connect(
-            lambda: self.run_requested.emit(self.platform_id))
+        self.run_button.clicked.connect(lambda: self.run_requested.emit(self.platform_id))
         self.stop_button = QPushButton("停止当前任务")
         self.stop_button.setObjectName("DangerButton")
         self.stop_button.setEnabled(False)
-        self.stop_button.clicked.connect(
-            lambda: self.stop_requested.emit(self.platform_id))
+        self.stop_button.clicked.connect(lambda: self.stop_requested.emit(self.platform_id))
         self.detail_button = QPushButton("查看详情")
         self.detail_button.setObjectName("SecondaryButton")
         self.detail_button.setEnabled(False)
-        self.detail_button.clicked.connect(
-            lambda: self.detail_requested.emit(self.platform_id))
+        self.detail_button.clicked.connect(lambda: self.detail_requested.emit(self.platform_id))
         button_row.addWidget(self.run_button, 1)
-        button_row.addWidget(self.stop_button, 1)
-        button_row.addWidget(self.detail_button, 1)
+        button_row.addWidget(self.stop_button)
+        button_row.addWidget(self.detail_button)
         root.addLayout(button_row)
+
         self.transcode_checkbox.toggled.connect(self._update_transcode_controls)
         self._update_transcode_controls()
+        apply_card_shadow(self)
 
     def add_format_combo(self, key: str, label: str, values: list[str]) -> None:
         combo = GuardedComboBox()
@@ -1029,7 +1058,7 @@ class PlatformCard(QFrame):
         combo.setObjectName("ComboBox")
         for value in values:
             combo.addItem(f"{value} {suffix}", value)
-        combo.setMinimumWidth(150)
+        combo.setMinimumWidth(160)
         wrapper_layout.addWidget(toggle)
         wrapper_layout.addWidget(combo, 1)
         row = self.transcode_form_layout.rowCount()
@@ -1110,8 +1139,7 @@ class PlatformCard(QFrame):
 
     def set_format_value(self, key: str, value: str) -> None:
         combo = self._format_widgets[key]
-        value = value if value in [combo.itemText(
-            i) for i in range(combo.count())] else combo.itemText(0)
+        value = value if value in [combo.itemText(i) for i in range(combo.count())] else combo.itemText(0)
         combo.setCurrentText(value)
 
     def format_value(self, key: str) -> str:
@@ -1167,17 +1195,20 @@ class PlatformCard(QFrame):
     def apply_state(self, payload: dict[str, Any]) -> None:
         status = str(payload.get("status", "idle") or "idle")
         mapping = {
-            "idle": "空闲",
-            "queued": "排队中",
-            "running": "运行中",
-            "waiting": "等待下一轮",
-            "stopping": "停止中",
-            "stopped": "已停止",
-            "success": "已完成",
-            "skipped": "已跳过",
-            "failed": "失败",
+            "idle": ("空闲", "idle"),
+            "queued": ("排队中", "warning"),
+            "running": ("运行中", "active"),
+            "waiting": ("等待下一轮", "warning"),
+            "stopping": ("停止中", "warning"),
+            "stopped": ("已停止", "idle"),
+            "success": ("已完成", "success"),
+            "skipped": ("已跳过", "idle"),
+            "failed": ("失败", "danger"),
         }
-        self.status_label.setText(f"状态：{mapping.get(status, status)}")
+        status_text, tone = mapping.get(status, (status, "idle"))
+        self.status_pill.setText(status_text)
+        self.status_pill.set_tone(tone)
+        self.status_label.setText(f"状态：{status_text}")
         self.message_label.setText(f"说明：{payload.get('message', '无')}")
         self.count_label.setText(
             "统计：成功 {success}，恢复 {recovered}，跳过 {skipped}，失败 {failed}".format(
@@ -1187,10 +1218,10 @@ class PlatformCard(QFrame):
                 failed=int(payload.get("failed_count", 0) or 0),
             )
         )
-        self.progress_label.setText(
-            f"进度：{payload.get('current_index', 0)} / {payload.get('current_total', 0)}")
-        current_file = pathlib.Path(
-            str(payload.get("current_file", "") or "")).name or "无"
+        current = int(payload.get("current_index", 0) or 0)
+        total = int(payload.get("current_total", 0) or 0)
+        self.progress_label.setText(f"进度：{current} / {total}")
+        current_file = pathlib.Path(str(payload.get("current_file", "") or "")).name or "无"
         self.file_label.setText(f"当前文件：{current_file}")
         hotspot = payload.get("timing_hotspot") or {}
         hotspot_text = f"{hotspot.get('stage', '无')} / {hotspot.get('ratio', 0)}" if hotspot else "无"
@@ -1202,6 +1233,8 @@ class PlatformCard(QFrame):
         self._batch_report_json = str(payload.get("batch_report_json", "") or "")
         self._batch_report_txt = str(payload.get("batch_report_txt", "") or "")
         active = status in {"queued", "running", "waiting", "stopping"}
+        self.progress_caption.setText(f"当前进度：{current} / {total}" if total else "当前进度：等待任务")
+        self.progress_bar.set_progress(current, total, active=active)
         self.run_button.setEnabled(not active)
         self.stop_button.setEnabled(active)
         self.detail_button.setEnabled(bool(self._batch_report_json or self._batch_report_txt))
@@ -1230,21 +1263,23 @@ class MainWindow(QWidget):
         self._transcode_running = False
         self._drag_origin: QPoint | None = None
         self._cards: dict[str, PlatformCard] = {}
+        self._acrylic_applied = False
         self._tab_platform_ids: list[str] = []
         self._build_ui()
         self._connect_signals()
         self._load_config_into_widgets()
         self._append_log("界面初始化完成。")
 
+
     def _build_ui(self) -> None:
         self.setWindowTitle(PROJECT_NAME_EN)
+        self.setObjectName("RootWindow")
         icon_path = self.paths.root_dir / "封面" / "封面.ico"
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
-        self.setMinimumSize(900, 620)
-        self.resize(1040, 680)
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
+        self.setMinimumSize(1120, 760)
+        self.resize(1380, 900)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
         outer = QVBoxLayout(self)
@@ -1258,8 +1293,7 @@ class MainWindow(QWidget):
         shell_layout.setSpacing(0)
         outer.addWidget(shell)
 
-        shell_layout.addWidget(
-            TitleBar(self, f"{PROJECT_NAME_EN} | {PROJECT_NAME_ZH}"))
+        shell_layout.addWidget(TitleBar(self, f"{PROJECT_NAME_EN} | {PROJECT_NAME_ZH}"))
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -1268,32 +1302,61 @@ class MainWindow(QWidget):
 
         body = QWidget()
         body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(20, 18, 20, 18)
+        body_layout.setContentsMargins(22, 20, 22, 22)
         body_layout.setSpacing(16)
         scroll.setWidget(body)
 
-        info_card = QFrame()
-        info_card.setObjectName("InfoCard")
-        info_layout = QVBoxLayout(info_card)
-        info_layout.setContentsMargins(18, 16, 18, 16)
-        info_layout.setSpacing(8)
+        hero_card = QFrame()
+        hero_card.setObjectName("HeroCard")
+        hero_layout = QHBoxLayout(hero_card)
+        hero_layout.setContentsMargins(24, 22, 24, 22)
+        hero_layout.setSpacing(20)
+
+        hero_left = QVBoxLayout()
+        hero_left.setContentsMargins(0, 0, 0, 0)
+        hero_left.setSpacing(10)
         title = QLabel("统一解密工作台")
         title.setObjectName("HeroTitle")
         desc = QLabel(
-            "支持 QQ 音乐、酷我音乐、酷狗音乐和网易云音乐。QQ 和酷我需要软件保持运行；酷狗与网易云为文件级离线解密。")
+            "保留无边框体验，把共享设置、平台解密和批量转码拆成清晰的工作区。先确认输出与附加策略，再切到平台页执行任务。"
+        )
         desc.setWordWrap(True)
         desc.setObjectName("HeroSubtitle")
+        chip_row = QHBoxLayout()
+        chip_row.setContentsMargins(0, 0, 0, 0)
+        chip_row.setSpacing(8)
+        for label, tone in (("PySide6", "active"), ("无边框", "warning"), ("FFmpeg 内置", "success")):
+            pill = StatusPill(label, tone)
+            chip_row.addWidget(pill)
+        chip_row.addStretch(1)
         link = QLabel(f'<a href="{PROJECT_ADDRESS}">{PROJECT_ADDRESS}</a>')
         link.setOpenExternalLinks(True)
-        legal = QLabel(
-            f"QQ：{PROJECT_QQ}\n{QQMUSIC_ATTRIBUTION}\n{LEGAL_NOTICE}")
+        legal = QLabel(f"QQ：{PROJECT_QQ}\n{QQMUSIC_ATTRIBUTION}\n{LEGAL_NOTICE}")
         legal.setWordWrap(True)
         legal.setObjectName("MutedText")
-        info_layout.addWidget(title)
-        info_layout.addWidget(desc)
-        info_layout.addWidget(link)
-        info_layout.addWidget(legal)
-        body_layout.addWidget(info_card)
+        hero_left.addWidget(title)
+        hero_left.addWidget(desc)
+        hero_left.addLayout(chip_row)
+        hero_left.addWidget(link)
+        hero_left.addWidget(legal)
+
+        hero_right = QWidget()
+        hero_right_layout = QGridLayout(hero_right)
+        hero_right_layout.setContentsMargins(0, 0, 0, 0)
+        hero_right_layout.setHorizontalSpacing(12)
+        hero_right_layout.setVerticalSpacing(12)
+        self.metric_running_tile = MetricTile("运行任务", "0", "当前正在运行")
+        self.metric_queue_tile = MetricTile("排队任务", "0", "FIFO 队列")
+        self.metric_transcode_tile = MetricTile("转码状态", "待命", "批量与平台共用 ffmpeg")
+        self.metric_output_tile = MetricTile("输出模式", "共享", "可切到分平台目录")
+        hero_right_layout.addWidget(self.metric_running_tile, 0, 0)
+        hero_right_layout.addWidget(self.metric_queue_tile, 0, 1)
+        hero_right_layout.addWidget(self.metric_transcode_tile, 1, 0)
+        hero_right_layout.addWidget(self.metric_output_tile, 1, 1)
+
+        hero_layout.addLayout(hero_left, 3)
+        hero_layout.addWidget(hero_right, 2)
+        body_layout.addWidget(hero_card)
 
         shared_card = QFrame()
         shared_card.setObjectName("ConfigCard")
@@ -1393,11 +1456,24 @@ class MainWindow(QWidget):
         shared_layout.addLayout(action_row)
         body_layout.addWidget(shared_card)
 
-        tabs_card = QFrame()
-        tabs_card.setObjectName("ConfigCard")
-        tabs_layout = QVBoxLayout(tabs_card)
-        tabs_layout.setContentsMargins(18, 16, 18, 16)
-        tabs_layout.setSpacing(12)
+        workspace_card = QFrame()
+        workspace_card.setObjectName("WorkspaceCard")
+        workspace_layout = QVBoxLayout(workspace_card)
+        workspace_layout.setContentsMargins(18, 16, 18, 16)
+        workspace_layout.setSpacing(12)
+        workspace_title = QLabel("工作区")
+        workspace_title.setObjectName("SectionTitle")
+        workspace_hint = QLabel("平台解密和批量转码拆成两个标签页。先完成共享设置，再切到对应标签执行任务。")
+        workspace_hint.setObjectName("MutedText")
+        workspace_hint.setWordWrap(True)
+        self.workspace_tabs = QTabWidget()
+        self.workspace_tabs.setDocumentMode(True)
+        self.workspace_tabs.setTabBar(NoWheelTabBar())
+
+        decrypt_page = QWidget()
+        decrypt_layout = QVBoxLayout(decrypt_page)
+        decrypt_layout.setContentsMargins(4, 4, 4, 4)
+        decrypt_layout.setSpacing(12)
         tabs_title = QLabel("平台解密")
         tabs_title.setObjectName("SectionTitle")
         tabs_hint = QLabel("先确认上方共享设置，再切到平台标签页执行任务。每个标签页都会显示当前文件、最近失败文件和具体失败原因。")
@@ -1406,19 +1482,30 @@ class MainWindow(QWidget):
         self.platform_tabs = QTabWidget()
         self.platform_tabs.setDocumentMode(True)
         self.platform_tabs.setTabBar(NoWheelTabBar())
-        tabs_layout.addWidget(tabs_title)
-        tabs_layout.addWidget(tabs_hint)
-        tabs_layout.addWidget(self.platform_tabs, 1)
-        body_layout.addWidget(tabs_card)
+        decrypt_layout.addWidget(tabs_title)
+        decrypt_layout.addWidget(tabs_hint)
+        decrypt_layout.addWidget(self.platform_tabs, 1)
 
+        transcode_page = QWidget()
+        transcode_layout = QVBoxLayout(transcode_page)
+        transcode_layout.setContentsMargins(4, 4, 4, 4)
+        transcode_layout.setSpacing(12)
         self.transcode_card = TranscodeBatchCard()
-        body_layout.addWidget(self.transcode_card)
+        transcode_layout.addWidget(self.transcode_card)
+
+        self.workspace_tabs.addTab(decrypt_page, "平台解密")
+        self.workspace_tabs.addTab(transcode_page, "批量转码")
+        workspace_layout.addWidget(workspace_title)
+        workspace_layout.addWidget(workspace_hint)
+        workspace_layout.addWidget(self.workspace_tabs, 1)
+        body_layout.addWidget(workspace_card, 1)
 
         def add_platform_tab(card: PlatformCard, title_text: str) -> None:
             page = QWidget()
             page_layout = QVBoxLayout(page)
             page_layout.setContentsMargins(10, 10, 10, 10)
             page_layout.setSpacing(0)
+            page_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
             page_layout.addWidget(card)
             page_layout.addStretch(1)
             self._tab_platform_ids.append(card.platform_id)
@@ -1433,8 +1520,7 @@ class MainWindow(QWidget):
         qq_card.add_extra_field("output_dir", "当前平台输出目录", directory=True)
         self._cards["qq"] = qq_card
 
-        kuwo_card = PlatformCard(
-            "kuwo", "酷我音乐", "运行期解密，开始任务前会检查 kwmusic.exe 进程。")
+        kuwo_card = PlatformCard("kuwo", "酷我音乐", "运行期解密，开始任务前会检查 kwmusic.exe 进程。")
         kuwo_card.add_format_combo("format_kwm", "kwm 输出格式", FORMATS)
         kuwo_card.add_extra_field("exe_path", "酷我程序路径（可选）", directory=False)
         kuwo_card.add_extra_field("signature_file", "签名文件路径", directory=False)
@@ -1444,13 +1530,10 @@ class MainWindow(QWidget):
         self._cards["kuwo"] = kuwo_card
 
         kugou_card = PlatformCard("kugou", "酷狗音乐", "文件级离线解密，不要求 KuGou 运行。")
-        kugou_card.add_format_combo(
-            "target_format_kgma", "kgma/kgm/vpr 输出格式", FORMATS)
+        kugou_card.add_format_combo("target_format_kgma", "kgma/kgm/vpr 输出格式", FORMATS)
         kugou_card.add_format_combo("target_format_kgg", "kgg 输出格式", FORMATS)
-        kugou_card.add_extra_field(
-            "key_file", "kugou_key.xz 路径", directory=False)
-        kugou_card.add_extra_field(
-            "kgg_db_path", "KGMusicV3.db 路径", directory=False)
+        kugou_card.add_extra_field("key_file", "kugou_key.xz 路径", directory=False)
+        kugou_card.add_extra_field("kgg_db_path", "KGMusicV3.db 路径", directory=False)
         kugou_card.add_transcode_profile_controls()
         add_platform_tab(kugou_card, "酷狗音乐")
         kugou_card.add_extra_field("output_dir", "当前平台输出目录", directory=True)
@@ -1463,11 +1546,11 @@ class MainWindow(QWidget):
         netease_card.add_extra_field("output_dir", "当前平台输出目录", directory=True)
         self._cards["netease"] = netease_card
 
-        right_card = QFrame()
-        right_card.setObjectName("ConfigCard")
-        right_layout = QVBoxLayout(right_card)
-        right_layout.setContentsMargins(18, 16, 18, 16)
-        right_layout.setSpacing(12)
+        log_card = QFrame()
+        log_card.setObjectName("ConfigCard")
+        log_layout = QVBoxLayout(log_card)
+        log_layout.setContentsMargins(18, 16, 18, 16)
+        log_layout.setSpacing(12)
         queue_title = QLabel("队列与日志")
         queue_title.setObjectName("SectionTitle")
         self.queue_label = QLabel("最多同时运行 2 个平台任务，超出部分进入 FIFO 队列。")
@@ -1476,14 +1559,18 @@ class MainWindow(QWidget):
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setObjectName("LogView")
-        self.log_view.setMinimumHeight(180)
+        self.log_view.setMinimumHeight(210)
         self.log_view.setMaximumBlockCount(800)
-        right_layout.addWidget(queue_title)
-        right_layout.addWidget(self.queue_label)
-        right_layout.addWidget(self.log_view, 1)
-        body_layout.addWidget(right_card)
+        log_layout.addWidget(queue_title)
+        log_layout.addWidget(self.queue_label)
+        log_layout.addWidget(self.log_view, 1)
+        body_layout.addWidget(log_card)
 
         self.setStyleSheet(build_app_stylesheet())
+        for widget in (hero_card, shared_card, workspace_card, log_card):
+            apply_card_shadow(widget)
+        if not self._acrylic_applied:
+            self._acrylic_applied = apply_win10_acrylic(self)
 
     def _connect_signals(self) -> None:
         self.output_field.button.clicked.connect(
