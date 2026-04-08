@@ -9,7 +9,7 @@ import threading
 from typing import Any
 
 from PySide6.QtCore import QObject, QPoint, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QIcon, QMouseEvent, QWheelEvent
+from PySide6.QtGui import QColor, QDesktopServices, QIcon, QMouseEvent, QShowEvent, QWheelEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -72,8 +72,8 @@ SHELL_BG = "#171A1F"
 CARD_BG = "#1E232B"
 CARD_ALT = "#202630"
 BORDER = "#2B313C"
-TEXT = "#F3F6FA"
-TEXT_MUTED = "#AAB5C5"
+TEXT = "#FFFFFF"
+TEXT_MUTED = "#EDF3FB"
 ACCENT = "#2D89EF"
 SUCCESS = "#22C55E"
 WARNING = "#F59E0B"
@@ -249,21 +249,23 @@ class NoWheelTabBar(QTabBar):
 def build_app_stylesheet() -> str:
     return f"""
     QWidget {{ color: {TEXT}; font-family: Microsoft YaHei UI; font-size: 13px; }}
-    QWidget#RootWindow {{ background: #0F1319; }}
+    QWidget#RootWindow {{ background: transparent; }}
     QFrame#Shell {{ background: rgba(17, 21, 27, 0.96); border: 1px solid rgba(88, 103, 130, 0.40); border-radius: 22px; }}
-    QFrame#WindowSurface {{ background: #0F1319; }}
-    QFrame#TopBanner {{ background: rgba(18, 23, 31, 0.98); border-bottom: 1px solid rgba(88, 103, 130, 0.22); }}
+    QFrame#WindowSurface {{ background: rgba(11, 15, 21, 0.28); }}
+    QFrame#TopBanner {{ background: rgba(18, 23, 31, 0.58); border-bottom: 1px solid rgba(120, 145, 182, 0.20); }}
     QFrame#TitleBar {{ background: transparent; border-bottom: 1px solid rgba(88, 103, 130, 0.22); }}
     QLabel#TitleLabel {{ font-size: 18px; font-weight: 700; }}
-    QLabel#SubtitleLabel, QLabel#MutedText, QLabel#CardSubtitle, QLabel#HeroSubtitle {{ color: {TEXT_MUTED}; }}
+    QLabel#SubtitleLabel, QLabel#MutedText, QLabel#CardSubtitle, QLabel#HeroSubtitle {{ color: rgba(255, 255, 255, 0.84); }}
     QLabel#HeroTitle {{ font-size: 26px; font-weight: 700; }}
     QLabel#SectionTitle {{ font-size: 16px; font-weight: 700; }}
     QLabel#CardTitle {{ font-size: 17px; font-weight: 700; }}
     QLabel#MetricValue {{ font-size: 28px; font-weight: 700; color: white; }}
-    QLabel#FieldLabel {{ color: {TEXT_MUTED}; font-size: 12px; }}
+    QLabel#FieldLabel {{ color: rgba(255, 255, 255, 0.78); font-size: 12px; }}
     QFrame#HeroCard {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(31, 40, 56, 0.92), stop:1 rgba(24, 32, 46, 0.88)); border: 1px solid rgba(94, 120, 158, 0.32); border-radius: 22px; }}
-    QFrame#SidebarCard, QFrame#SidebarNavCard, QFrame#WorkspaceCard, QFrame#InfoCard, QFrame#ConfigCard, QFrame#PlatformCard, QFrame#NoticeCard {{ background: rgba(29, 35, 45, 0.92); border: 1px solid rgba(88, 103, 130, 0.28); border-radius: 18px; }}
-    QFrame#MiniCard, QFrame#StatusBox, QFrame#MetricTile {{ background: rgba(17, 21, 27, 0.68); border: 1px solid rgba(88, 103, 130, 0.22); border-radius: 14px; }}
+    QFrame#SidebarCard, QFrame#WorkspaceCard, QFrame#InfoCard, QFrame#ConfigCard, QFrame#PlatformCard, QFrame#NoticeCard {{ background: rgba(29, 35, 45, 0.82); border: 1px solid rgba(120, 145, 182, 0.24); border-radius: 18px; }}
+    QFrame#SidebarNavHost {{ background: transparent; border: none; }}
+    NavigationInterface {{ background: transparent; }}
+    QFrame#MiniCard, QFrame#StatusBox, QFrame#MetricTile {{ background: rgba(17, 21, 27, 0.58); border: 1px solid rgba(120, 145, 182, 0.18); border-radius: 14px; }}
     QFrame#WorkspaceCard:hover, QFrame#PlatformCard:hover {{ border-color: rgba(82, 148, 255, 0.42); background: rgba(31, 38, 50, 0.88); }}
     QLineEdit, QComboBox, QPlainTextEdit {{ background: rgba(11, 16, 24, 0.90); border: 1px solid rgba(88, 103, 130, 0.32); border-radius: 12px; padding: 9px 12px; selection-background-color: #3B82F6; }}
     QLineEdit:hover, QComboBox:hover, QPlainTextEdit:hover {{ border-color: rgba(82, 148, 255, 0.48); }}
@@ -1285,7 +1287,7 @@ class MainWindow(QWidget):
         self.setMinimumSize(1280, 820)
         self.resize(1500, 940)
         self.setWindowFlags(Qt.WindowType.Window)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -1490,7 +1492,7 @@ class MainWindow(QWidget):
         body_shell.setSpacing(14)
 
         nav_frame = QFrame()
-        nav_frame.setObjectName("SidebarNavCard")
+        nav_frame.setObjectName("SidebarNavHost")
         nav_frame.setFixedWidth(252)
         nav_layout = QVBoxLayout(nav_frame)
         nav_layout.setContentsMargins(14, 16, 14, 16)
@@ -1729,6 +1731,16 @@ class MainWindow(QWidget):
         self.transcode_card.choose_output_requested.connect(self._handle_transcode_choose_output)
         self.transcode_card.start_requested.connect(self._handle_transcode_start)
 
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        if not self._acrylic_applied:
+            QTimer.singleShot(0, self._ensure_acrylic_effect)
+
+    def _ensure_acrylic_effect(self) -> None:
+        if self._acrylic_applied or not self.isVisible():
+            return
+        self._acrylic_applied = apply_win10_acrylic(self)
     def _switch_workspace_page(self, key: str) -> None:
         page = self._workspace_pages.get(key)
         if page is None:
