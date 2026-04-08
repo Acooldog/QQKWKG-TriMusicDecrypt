@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QTabBar,
     QTabWidget,
     QTableWidget,
@@ -64,6 +65,7 @@ from src.Infrastructure.runtime_paths import RuntimePaths
 from src.Presentation.modern_widgets import AnimatedProgressBar, MetricTile, StatusPill, apply_card_shadow
 from src.Presentation.transcode_card import TranscodeBatchCard
 from src.Presentation.window_effects import apply_win10_acrylic
+from qfluentwidgets import FluentIcon as FIF, NavigationInterface, NavigationItemPosition
 
 WINDOW_BG = "#101215"
 SHELL_BG = "#171A1F"
@@ -1265,6 +1267,7 @@ class MainWindow(QWidget):
         self._cards: dict[str, PlatformCard] = {}
         self._acrylic_applied = False
         self._tab_platform_ids: list[str] = []
+        self._workspace_pages: dict[str, QWidget] = {}
         self._build_ui()
         self._connect_signals()
         self._load_config_into_widgets()
@@ -1461,116 +1464,208 @@ class MainWindow(QWidget):
         workspace_layout = QVBoxLayout(workspace_card)
         workspace_layout.setContentsMargins(18, 16, 18, 16)
         workspace_layout.setSpacing(12)
-        workspace_title = QLabel("工作区")
+        workspace_title = QLabel("???")
         workspace_title.setObjectName("SectionTitle")
-        workspace_hint = QLabel("平台解密和批量转码拆成两个标签页。先完成共享设置，再切到对应标签执行任务。")
+        workspace_hint = QLabel("???????????????????????????????????????????")
         workspace_hint.setObjectName("MutedText")
         workspace_hint.setWordWrap(True)
-        self.workspace_tabs = QTabWidget()
-        self.workspace_tabs.setDocumentMode(True)
-        self.workspace_tabs.setTabBar(NoWheelTabBar())
 
-        decrypt_page = QWidget()
-        decrypt_layout = QVBoxLayout(decrypt_page)
-        decrypt_layout.setContentsMargins(4, 4, 4, 4)
-        decrypt_layout.setSpacing(12)
-        tabs_title = QLabel("平台解密")
+        workspace_shell = QHBoxLayout()
+        workspace_shell.setContentsMargins(0, 0, 0, 0)
+        workspace_shell.setSpacing(14)
+
+        nav_frame = QFrame()
+        nav_frame.setObjectName("SidebarNavCard")
+        nav_frame.setFixedWidth(240)
+        nav_layout = QVBoxLayout(nav_frame)
+        nav_layout.setContentsMargins(12, 12, 12, 12)
+        nav_layout.setSpacing(10)
+        nav_title = QLabel("??")
+        nav_title.setObjectName("SectionTitle")
+        nav_subtitle = QLabel("? Steam++ ???????????????")
+        nav_subtitle.setObjectName("MutedText")
+        nav_subtitle.setWordWrap(True)
+        nav_layout.addWidget(nav_title)
+        nav_layout.addWidget(nav_subtitle)
+
+        self.workspace_nav = NavigationInterface(nav_frame, showMenuButton=False, showReturnButton=False, collapsible=False)
+        self.workspace_nav.setMinimumWidth(216)
+        nav_layout.addWidget(self.workspace_nav, 1)
+        workspace_shell.addWidget(nav_frame, 0)
+
+        self.workspace_stack = QStackedWidget()
+        workspace_shell.addWidget(self.workspace_stack, 1)
+
+        workspace_layout.addWidget(workspace_title)
+        workspace_layout.addWidget(workspace_hint)
+        workspace_layout.addLayout(workspace_shell, 1)
+        body_layout.addWidget(workspace_card, 1)
+
+        tabs_card = QFrame()
+        tabs_card.setObjectName("ConfigCard")
+        tabs_layout = QVBoxLayout(tabs_card)
+        tabs_layout.setContentsMargins(18, 16, 18, 16)
+        tabs_layout.setSpacing(12)
+        tabs_title = QLabel("????")
         tabs_title.setObjectName("SectionTitle")
-        tabs_hint = QLabel("先确认上方共享设置，再切到平台标签页执行任务。每个标签页都会显示当前文件、最近失败文件和具体失败原因。")
+        tabs_hint = QLabel("???????????????????????????????")
         tabs_hint.setObjectName("MutedText")
         tabs_hint.setWordWrap(True)
         self.platform_tabs = QTabWidget()
         self.platform_tabs.setDocumentMode(True)
         self.platform_tabs.setTabBar(NoWheelTabBar())
-        decrypt_layout.addWidget(tabs_title)
-        decrypt_layout.addWidget(tabs_hint)
-        decrypt_layout.addWidget(self.platform_tabs, 1)
+        tabs_layout.addWidget(tabs_title)
+        tabs_layout.addWidget(tabs_hint)
+        tabs_layout.addWidget(self.platform_tabs, 1)
 
-        transcode_page = QWidget()
-        transcode_layout = QVBoxLayout(transcode_page)
-        transcode_layout.setContentsMargins(4, 4, 4, 4)
-        transcode_layout.setSpacing(12)
-        self.transcode_card = TranscodeBatchCard()
-        transcode_layout.addWidget(self.transcode_card)
-
-        self.workspace_tabs.addTab(decrypt_page, "平台解密")
-        self.workspace_tabs.addTab(transcode_page, "批量转码")
-        workspace_layout.addWidget(workspace_title)
-        workspace_layout.addWidget(workspace_hint)
-        workspace_layout.addWidget(self.workspace_tabs, 1)
-        body_layout.addWidget(workspace_card, 1)
+        decrypt_page = QWidget()
+        decrypt_layout = QVBoxLayout(decrypt_page)
+        decrypt_layout.setContentsMargins(0, 0, 0, 0)
+        decrypt_layout.setSpacing(0)
+        decrypt_layout.addWidget(tabs_card, 1)
 
         def add_platform_tab(card: PlatformCard, title_text: str) -> None:
             page = QWidget()
             page_layout = QVBoxLayout(page)
             page_layout.setContentsMargins(10, 10, 10, 10)
             page_layout.setSpacing(0)
-            page_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
             page_layout.addWidget(card)
             page_layout.addStretch(1)
             self._tab_platform_ids.append(card.platform_id)
             self.platform_tabs.addTab(page, title_text)
 
-        qq_card = PlatformCard("qq", "QQ音乐", "运行期解密，开始任务前会检查 QQ 音乐进程。")
-        qq_card.add_format_combo("mflac", "mflac 输出格式", QQ_RULE_FORMATS)
-        qq_card.add_format_combo("mgg", "mgg 输出格式", QQ_RULE_FORMATS)
-        qq_card.add_format_combo("mmp4", "mmp4 输出格式", QQ_RULE_FORMATS)
+        qq_card = PlatformCard("qq", "QQ??", "?????????????? QQ ?????")
+        qq_card.add_format_combo("mflac", "mflac ????", QQ_RULE_FORMATS)
+        qq_card.add_format_combo("mgg", "mgg ????", QQ_RULE_FORMATS)
+        qq_card.add_format_combo("mmp4", "mmp4 ????", QQ_RULE_FORMATS)
         qq_card.add_transcode_profile_controls()
-        add_platform_tab(qq_card, "QQ音乐")
-        qq_card.add_extra_field("output_dir", "当前平台输出目录", directory=True)
+        add_platform_tab(qq_card, "QQ??")
+        qq_card.add_extra_field("output_dir", "????????", directory=True)
         self._cards["qq"] = qq_card
 
-        kuwo_card = PlatformCard("kuwo", "酷我音乐", "运行期解密，开始任务前会检查 kwmusic.exe 进程。")
-        kuwo_card.add_format_combo("format_kwm", "kwm 输出格式", FORMATS)
-        kuwo_card.add_extra_field("exe_path", "酷我程序路径（可选）", directory=False)
-        kuwo_card.add_extra_field("signature_file", "签名文件路径", directory=False)
+        kuwo_card = PlatformCard("kuwo", "????", "?????????????? kwmusic.exe ???")
+        kuwo_card.add_format_combo("format_kwm", "kwm ????", FORMATS)
+        kuwo_card.add_extra_field("exe_path", "??????????", directory=False)
+        kuwo_card.add_extra_field("signature_file", "??????", directory=False)
         kuwo_card.add_transcode_profile_controls()
-        add_platform_tab(kuwo_card, "酷我音乐")
-        kuwo_card.add_extra_field("output_dir", "当前平台输出目录", directory=True)
+        add_platform_tab(kuwo_card, "????")
+        kuwo_card.add_extra_field("output_dir", "????????", directory=True)
         self._cards["kuwo"] = kuwo_card
 
-        kugou_card = PlatformCard("kugou", "酷狗音乐", "文件级离线解密，不要求 KuGou 运行。")
-        kugou_card.add_format_combo("target_format_kgma", "kgma/kgm/vpr 输出格式", FORMATS)
-        kugou_card.add_format_combo("target_format_kgg", "kgg 输出格式", FORMATS)
-        kugou_card.add_extra_field("key_file", "kugou_key.xz 路径", directory=False)
-        kugou_card.add_extra_field("kgg_db_path", "KGMusicV3.db 路径", directory=False)
+        kugou_card = PlatformCard("kugou", "????", "??????????? KuGou ???")
+        kugou_card.add_format_combo("target_format_kgma", "kgma/kgm/vpr ????", FORMATS)
+        kugou_card.add_format_combo("target_format_kgg", "kgg ????", FORMATS)
+        kugou_card.add_extra_field("key_file", "kugou_key.xz ??", directory=False)
+        kugou_card.add_extra_field("kgg_db_path", "KGMusicV3.db ??", directory=False)
         kugou_card.add_transcode_profile_controls()
-        add_platform_tab(kugou_card, "酷狗音乐")
-        kugou_card.add_extra_field("output_dir", "当前平台输出目录", directory=True)
+        add_platform_tab(kugou_card, "????")
+        kugou_card.add_extra_field("output_dir", "????????", directory=True)
         self._cards["kugou"] = kugou_card
 
-        netease_card = PlatformCard("netease", "网易云音乐", "文件级离线解密，直接处理 .ncm 文件，不要求网易云音乐运行。")
-        netease_card.add_format_combo("target_format_ncm", "ncm 输出格式", FORMATS)
+        netease_card = PlatformCard("netease", "?????", "???????????? .ncm ??????????????")
+        netease_card.add_format_combo("target_format_ncm", "ncm ????", FORMATS)
         netease_card.add_transcode_profile_controls()
-        add_platform_tab(netease_card, "网易云音乐")
-        netease_card.add_extra_field("output_dir", "当前平台输出目录", directory=True)
+        add_platform_tab(netease_card, "?????")
+        netease_card.add_extra_field("output_dir", "????????", directory=True)
         self._cards["netease"] = netease_card
+
+        settings_page = QWidget()
+        settings_layout = QVBoxLayout(settings_page)
+        settings_layout.setContentsMargins(0, 0, 0, 0)
+        settings_layout.setSpacing(0)
+        settings_layout.addWidget(shared_card)
+        settings_layout.addStretch(1)
+
+        transcode_page = QWidget()
+        transcode_layout = QVBoxLayout(transcode_page)
+        transcode_layout.setContentsMargins(0, 0, 0, 0)
+        transcode_layout.setSpacing(12)
+        transcode_hint_card = QFrame()
+        transcode_hint_card.setObjectName("ConfigCard")
+        transcode_hint_layout = QVBoxLayout(transcode_hint_card)
+        transcode_hint_layout.setContentsMargins(18, 16, 18, 16)
+        transcode_hint_layout.setSpacing(8)
+        transcode_title = QLabel("????")
+        transcode_title.setObjectName("SectionTitle")
+        transcode_hint = QLabel("???????????????????????????????????? ffmpeg ?????")
+        transcode_hint.setObjectName("MutedText")
+        transcode_hint.setWordWrap(True)
+        transcode_hint_layout.addWidget(transcode_title)
+        transcode_hint_layout.addWidget(transcode_hint)
+        self.transcode_card = TranscodeBatchCard()
+        transcode_layout.addWidget(transcode_hint_card)
+        transcode_layout.addWidget(self.transcode_card, 1)
 
         log_card = QFrame()
         log_card.setObjectName("ConfigCard")
         log_layout = QVBoxLayout(log_card)
         log_layout.setContentsMargins(18, 16, 18, 16)
         log_layout.setSpacing(12)
-        queue_title = QLabel("队列与日志")
+        queue_title = QLabel("?????")
         queue_title.setObjectName("SectionTitle")
-        self.queue_label = QLabel("最多同时运行 2 个平台任务，超出部分进入 FIFO 队列。")
+        self.queue_label = QLabel("?????? 2 ???????????? FIFO ???")
         self.queue_label.setWordWrap(True)
         self.queue_label.setObjectName("MutedText")
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setObjectName("LogView")
-        self.log_view.setMinimumHeight(210)
+        self.log_view.setMinimumHeight(260)
         self.log_view.setMaximumBlockCount(800)
         log_layout.addWidget(queue_title)
         log_layout.addWidget(self.queue_label)
         log_layout.addWidget(self.log_view, 1)
-        body_layout.addWidget(log_card)
+
+        logs_page = QWidget()
+        logs_layout = QVBoxLayout(logs_page)
+        logs_layout.setContentsMargins(0, 0, 0, 0)
+        logs_layout.setSpacing(0)
+        logs_layout.addWidget(log_card, 1)
+
+        overview_page = QWidget()
+        overview_layout = QVBoxLayout(overview_page)
+        overview_layout.setContentsMargins(0, 0, 0, 0)
+        overview_layout.setSpacing(12)
+        overview_note = QFrame()
+        overview_note.setObjectName("ConfigCard")
+        overview_note_layout = QVBoxLayout(overview_note)
+        overview_note_layout.setContentsMargins(18, 16, 18, 16)
+        overview_note_layout.setSpacing(8)
+        overview_title = QLabel("??")
+        overview_title.setObjectName("SectionTitle")
+        overview_text = QLabel("?????????????????????????????????????????????????")
+        overview_text.setObjectName("MutedText")
+        overview_text.setWordWrap(True)
+        overview_note_layout.addWidget(overview_title)
+        overview_note_layout.addWidget(overview_text)
+        overview_layout.addWidget(hero_card)
+        overview_layout.addWidget(overview_note)
+        overview_layout.addStretch(1)
+
+        pages = {
+            "overview": overview_page,
+            "decrypt": decrypt_page,
+            "transcode": transcode_page,
+            "settings": settings_page,
+            "logs": logs_page,
+        }
+        for key, page in pages.items():
+            self._workspace_pages[key] = page
+            self.workspace_stack.addWidget(page)
+
+        self.workspace_nav.addItem("overview", FIF.HOME, "??", onClick=lambda: self._switch_workspace_page("overview"), position=NavigationItemPosition.SCROLL)
+        self.workspace_nav.addItem("decrypt", FIF.APPLICATION, "????", onClick=lambda: self._switch_workspace_page("decrypt"), position=NavigationItemPosition.SCROLL)
+        self.workspace_nav.addItem("transcode", FIF.SYNC, "????", onClick=lambda: self._switch_workspace_page("transcode"), position=NavigationItemPosition.SCROLL)
+        self.workspace_nav.addItem("settings", FIF.SETTING, "??", onClick=lambda: self._switch_workspace_page("settings"), position=NavigationItemPosition.SCROLL)
+        self.workspace_nav.addItem("logs", FIF.DOCUMENT, "??", onClick=lambda: self._switch_workspace_page("logs"), position=NavigationItemPosition.SCROLL)
+        self.workspace_nav.addItem("tips", FIF.HELP, "????", onClick=self._show_usage_tips, selectable=False, position=NavigationItemPosition.BOTTOM)
+        self.workspace_nav.addItem("output", FIF.FOLDER, "??????", onClick=self._open_output_dir, selectable=False, position=NavigationItemPosition.BOTTOM)
 
         self.setStyleSheet(build_app_stylesheet())
-        for widget in (hero_card, shared_card, workspace_card, log_card):
+        for widget in (hero_card, shared_card, workspace_card, nav_frame, tabs_card, transcode_hint_card, log_card, overview_note):
             apply_card_shadow(widget)
         if not self._acrylic_applied:
             self._acrylic_applied = apply_win10_acrylic(self)
+        self._switch_workspace_page("overview")
 
     def _connect_signals(self) -> None:
         self.output_field.button.clicked.connect(
@@ -1607,6 +1702,13 @@ class MainWindow(QWidget):
         self.transcode_card.choose_input_requested.connect(self._handle_transcode_choose_input)
         self.transcode_card.choose_output_requested.connect(self._handle_transcode_choose_output)
         self.transcode_card.start_requested.connect(self._handle_transcode_start)
+
+    def _switch_workspace_page(self, key: str) -> None:
+        page = self._workspace_pages.get(key)
+        if page is None:
+            return
+        self.workspace_stack.setCurrentWidget(page)
+        self.workspace_nav.setCurrentItem(key)
 
     def _platform_title(self, platform_id: str) -> str:
         return {"qq": "QQ音乐", "kuwo": "酷我音乐", "kugou": "酷狗音乐", "netease": "网易云音乐"}[platform_id]
