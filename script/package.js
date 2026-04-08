@@ -91,10 +91,16 @@ function findExistingWorktree(branchName) {
   return null;
 }
 
+function isValidUiWorktree(repoDir) {
+  return fs.existsSync(path.join(repoDir, "native", "build_native.ps1"));
+}
 function resolveUiWorktree() {
   const existing = findExistingWorktree("main-ui");
   if (existing) {
-    return { repoDir: existing, ephemeral: false };
+    if (isValidUiWorktree(existing)) {
+      return { repoDir: existing, ephemeral: false };
+    }
+    removeWorktreeIfPresent(existing);
   }
   removeWorktreeIfPresent(tempUiWorktreeDir);
   run("git", ["worktree", "add", "--force", tempUiWorktreeDir, "main-ui"], { cwd: rootDir });
@@ -217,3 +223,4 @@ function main() {
 }
 
 main();
+

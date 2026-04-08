@@ -1,6 +1,6 @@
 {
   "name": "qkkdecrypt",
-  "version": "1.4.1",
+  "version": "1.4.3",
   "private": true,
   "description": "QKKDecrypt packaging and release entry",
   "scripts": {
