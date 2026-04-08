@@ -2,76 +2,73 @@
 
 本文档只做工程合规说明，不构成法律意见。
 
-## 结论
+## 总体结论
 
-`QKKDecrypt` 仓库中由作者自行编写的源码部分继续采用 `MIT`。
-当前分发包则应按 `Mixed / Third-party licenses apply` 理解和表述。如果你分发打包后的可执行文件、安装包或内置运行库，就必须同时遵守第三方组件各自的许可证。
+- 当前两个 `QKKDecrypt` 仓库的作者自编源码，统一按 **GPLv3** 发布。
+- UI 路线计划/实现依赖 **PySide6-Fluent-Widgets**，当前按其**非商业 GPLv3 路线**使用。
+- 打包分发时，仍需同时遵守各第三方组件自己的许可证边界。
 
-推荐对外统一使用下面这条表述：
-
-> 本仓库中作者自行编写的源码部分采用 MIT 协议；当前分发包包含第三方运行库与工具，整体分发形态不是 MIT-only，第三方组件仍受各自许可证约束。
-
-## 当前最需要注意的边界
+## 当前重点组件
 
 ### 1. PySide6 / Qt for Python
 
-- 当前 `main-ui` 桌面界面使用 `PySide6`
-- `PySide6 / Qt for Python` 不属于 `MIT`
-- 其许可体系通常包括：
+- UI 使用 `PySide6`
+- Qt for Python 通常涉及：
   - `LGPLv3`
   - `GPLv3`
   - 商业许可
-
-工程上更准确的表述是：
-- 本项目 UI 版本动态链接 `PySide6 / Qt` 运行库
-- 用户可以替换对应的共享库版本
-- 分发 UI 安装包时，不能把整个安装包简单宣传成“纯 MIT 软件”
+- 分发 UI 时，不应忽略 Qt 相关运行库的许可证要求
 
 参考：
-- Qt for Python licensing: https://doc.qt.io/qtforpython-6/commercial/index.html
-- Qt LGPL overview: https://doc.qt.io/qtforpython-6/overviews/qtdoc-lgpl.html
+- https://doc.qt.io/qtforpython-6/commercial/index.html
+- https://doc.qt.io/qtforpython-6/overviews/qtdoc-lgpl.html
 
-### 2. FFmpeg
+### 2. PySide6-Fluent-Widgets / QFluentWidgets
 
-当前仓库内置的 FFmpeg 二进制为：
-- `assets/ffmpeg-win-x86_64-v7.1.exe`
+- UI 计划/实现使用 `PySide6-Fluent-Widgets`
+- 上游当前采用：
+  - **非商业：GPLv3 路线**
+  - **商业：需单独购买商业授权**
 
-该构建的版本信息包含：
+因此当前项目对它的使用边界应理解为：
+- 当前仓库按 GPLv3 非商业开源路线发布
+- 如果未来要做商业闭源分发，不能直接沿用当前依赖组合，必须先完成上游授权核验
+
+参考：
+- https://github.com/zhiyiYo/PyQt-Fluent-Widgets
+- https://pypi.org/project/PySide6-Fluent-Widgets/
+
+### 3. FFmpeg
+
+当前仓库内置 FFmpeg 二进制构建信息包含：
 - `--enable-gpl`
 - `--enable-version3`
 
-这说明当前内置 FFmpeg 属于 GPL 构建，而不是可以直接按 MIT 叙述的独立组件。
-工程含义是：
-- 仓库源码可以仍为 MIT
-- 但带这个 FFmpeg 一起分发的安装包或可执行包，不应宣称为 `MIT-only`
-
-如果后续要进一步降低合规复杂度，优先级最高的动作是：
-- 替换当前内置 FFmpeg
-- 改为你明确接受、边界更清晰的构建
+这意味着带该二进制一起分发时，不能只看仓库源码的 GPLv3，还需要同时遵守 FFmpeg 的许可证要求。
 
 参考：
-- FFmpeg legal: https://ffmpeg.org/legal.html
+- https://ffmpeg.org/legal.html
 
-### 3. `qqmusic_decrypt` 参考项目
+### 4. 参考项目与思路来源
 
-本项目 README 已明确声明：
-- `QQ 音乐` 解密模型思路参考自 [`qqmusic_decrypt`](https://github.com/luyikk/qqmusic_decrypt)
+本项目 README 已注明：
+- `qqmusic_decrypt` 等项目仅作为思路来源与致谢对象
 
-当前工程上建议这样处理：
-- 只把它当作思路来源与致谢对象
-- 不要简单把对应来源代码视为“天然可并入 MIT 再授权”
-- 如果未来要更严格发布，应再次核验该来源项目的许可证、代码引用边界和归属情况
+工程上应继续避免：
+- 直接把来源项目代码默认视为可任意再授权代码
+- 在未重新核验许可证前，把外部项目代码大段并入再重新发布
 
-## 推荐口径
+## 推荐表述
 
-推荐在 README、发布页和关于界面统一使用：
+建议在 README、发布页、安装包说明里统一使用类似口径：
 
-> 本仓库中作者自行编写的源码部分采用 MIT 协议；当前分发包包含 PySide6 / Qt 运行库与 FFmpeg 等第三方组件，整体分发形态不是 MIT-only，第三方组件仍受其各自许可证约束。
+> 本项目按 GPLv3 发布，并在 UI 路线中使用 PySide6 与 PySide6-Fluent-Widgets。项目仅面向非商业开源分发与学习研究场景。打包产物同时受 FFmpeg、Qt/PySide6 及其他第三方依赖的许可证约束；如需商业使用或闭源分发，请先自行完成许可证核验并取得必要授权。
 
 ## 不建议的表述
 
 不建议直接写：
-- “整个项目就是 MIT”
-- “所有分发包都是 MIT”
+- “整个分发包只受 GPLv3 约束”
+- “QFluentWidgets 可以直接用于任何商业闭源项目”
+- “本项目天然适合任何商业用途”
 
-在当前打包结构下，这两种说法都不严谨。
+这些表述在当前依赖组合下都不严谨。
