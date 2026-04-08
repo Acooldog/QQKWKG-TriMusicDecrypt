@@ -1,244 +1,107 @@
 ﻿<div align="center">
 
-# QKKDecrypt - QQ酷狗酷我网易云音乐解密工具
+# QKKDecrypt | QQ 酷狗酷我网易云音乐解密工具
+
+![Python](https://img.shields.io/badge/Python-3.11+-blue)
+![License](https://img.shields.io/badge/License-GPLv3-blue)
+![UI](https://img.shields.io/badge/UI-PySide6%20%2B%20QFluentWidgets-4c8bf5)
 
 </div>
 
+## 项目定位
 
+`QKKDecrypt` 是一个面向本地文件处理场景的桌面/控制台工具集：
+- 控制台版本：批处理、自动化、脚本化操作
+- UI 版本：面向普通用户的桌面工作台
+- 架构保持三层：`Presentation / Application / Infrastructure`
 
-<div align="center">
+当前仓库源码统一按 **GPLv3** 发布；UI 路线采用 **PySide6 + QFluentWidgets** 的非商业 GPLv3 路线持续重构。
 
-![Python](https://img.shields.io/badge/Python-3.7%2B-blue)
-![License](https://img.shields.io/badge/License-Mixed-yellow)
-![GitHub stars](https://img.shields.io/github/stars/Acooldog/QQKWKG-TriMusicDecrypt?style=social)
-
-</div>
-
-<div align="center">
-
-> **解密软件最大的特点：官方更新静态密钥后，程序会自动识别，无需维护，主要基于hook技术以及逆向技术**
-
-**一款可以解密QQ音乐、酷我音乐、酷狗音乐的开源免费工具**<br>
-**仅供学习交流使用，尊重正版，从你我做起**<br>
-**如果对你有帮助，可以点一下star吗？万分感谢！！！**<br>
-**禁止商用、禁止倒卖**
-
-</div>
-
-<div align="center">
-
-<img src="./封面/封面.png" width="50%" height = "50%" align="center">
-
-</div>
-<br><br>
-
----
-
-
-<div align="center">
-
-# 特别鸣谢
-**感谢原项目提issues以及关注这个项目的人，你们的热情是我的动力<br>你们在bilibili的每条留言我都会看，愿我们永远沉浸在自己的热爱之中！<br><br>最近开学了，修复速度可能会变慢，请见谅！**
-
-![issues1](./img/issues1.png)
-
-</div>
-
-
----
-# `QKKDecrypt` 介绍
-- 中文名: `QQ酷狗酷我音乐网易云解密工具`
-- 英文名: `QKKDecrypt`
-- 项目地址: `https://github.com/Acooldog/QQKWKG-TriMusicDecrypt`
-  
-main分支为console版本
-main-ui分支为UI版本，UI框架为pyside6
-
-qq音乐解密模型思路是[qqmusic_decrypt](https://github.com/luyikk/qqmusic_decrypt)项目提供的<br>
-网易云音乐解密模型是python的ncmdump库<br>
-其他的解密模型均自主抱着学习以及尊重正版的名义逆向学习<br>
-仅供学习交流使用，禁止商用！禁止倒卖！倒卖者将举报平台并持续追责！！！
-
-## Branches
+## 分支说明
 
 - `main`
   - 控制台版本
   - 薄入口 `main.py`
-  - 三层架构: `Presentation / Application / Infrastructure`
-  - 打包形态: `onefile`
+  - 打包形态：`onefile`
 - `main-ui`
   - PySide6 桌面 UI 版本
-  - Win10 风格
-  - 打包形态: `onedir + _internal + setup`
+  - 保留无边框、Win10/11 风格、亚克力效果与动态进度反馈
+  - 打包形态：`onedir + _internal + setup`
 
-## Platform Support
+## 当前支持的平台
 
 - `QQ音乐`
   - 运行期解密
-  - 需要 QQ 音乐保持运行
+  - 需要 QQ 音乐进程配合
 - `酷我音乐`
   - 运行期解密
-  - 需要酷我保持运行
+  - 需要酷我进程配合
 - `酷狗音乐`
   - 文件级离线解密
-  - 不需要 KuGou 保持运行
+- `网易云音乐`
+  - 文件级离线解密
 
-## Architecture
+## UI 路线
 
-根目录只保留薄 `main.py`。
-核心代码统一位于 `src/`:
-- `src/Presentation`
-  - CLI
-  - 控制台交互
-  - `main-ui` 分支中的 PySide6 UI
-- `src/Application`
-  - 平台调度
-  - 批处理编排
-  - timing 聚合
-  - 输出冲突处理
-- `src/Infrastructure`
-  - 平台适配器
-  - 运行时路径
-  - 配置仓储
-  - 进程检测
-  - 转码与内部资源定位
+UI 版本继续使用 **PySide6**，并逐步引入 **QFluentWidgets** 做导航、卡片和桌面风格控件，目标体验参考 Steam++：
+- 左侧导航栏
+- 页面分区明确
+- 设置页面独立
+- 小窗口/辅助页独立
+- 无边框桌面体验
+- 动态进度反馈与现代化状态提示
 
-## CLI
+## 打包
 
 ```powershell
-O:\A_python\A_QKKd\.venv\Scripts\python.exe O:\A_python\A_QKKd\main.py qq decrypt --input "D:\QQMusic" --output "O:\A_python\A_QKKd\output"
-```
-
-```powershell
-O:\A_python\A_QKKd\.venv\Scripts\python.exe O:\A_python\A_QKKd\main.py kuwo decrypt --input "D:\Kuwo" --output "O:\A_python\A_QKKd\output"
-```
-
-```powershell
-O:\A_python\A_QKKd\.venv\Scripts\python.exe O:\A_python\A_QKKd\main.py kugou decrypt --input "O:\KuGou\KugouMusic" --output "O:\A_python\A_QKKd\output"
-```
-
-## Interactive Console
-
-```powershell
-O:\A_python\A_QKKd\.venv\Scripts\python.exe O:\A_python\A_QKKd\main.py
-```
-
-交互模式会:
-- 显示项目地址、QQ 和法律声明
-- 询问是否直接使用配置
-- 让用户选择平台
-- 对 `QQ/酷我` 进行阻断式进程检测
-- 所有退出路径统一经过 `按任意键退出`
-
-## Configuration
-
-外部配置文件: `plugins/plugins.json`
-命名空间: `decrypt_cli`
-
-关键字段:
-- `shared.output_dir`
-- `shared.cli_collision_policy`
-- `shared.recursive`
-- `qq.input_dir`
-- `qq.format_rules`
-- `qq.process_match`
-- `kuwo.input_dir`
-- `kuwo.process_name`
-- `kuwo.exe_path`
-- `kuwo.signature_file`
-- `kuwo.format_kwm`
-- `kugou.input_dir`
-- `kugou.kgg_db_path`
-- `kugou.key_file`
-- `kugou.target_format_kgma`
-- `kugou.target_format_kgg`
-
-## Shared Output Policy
-
-三平台共用一个输出根目录。
-- CLI: 同名跨平台冲突时自动加平台后缀
-  - `花海.qq.flac`
-  - `花海.kuwo.mp3`
-  - `花海.kugou.flac`
-- 交互模式: 运行时询问用户处理方式
-
-## Timing
-
-三平台统一输出 timing:
-- 单文件: `scan`, `dedupe`, `decrypt`, `transcode`, `publish`, `total`
-- 批量: `batch_total`, `batch_avg`, `batch_hotspot`
-
-## Transcoding
-
-只允许调用内部资源中的 `assets/ffmpeg*.exe`。
-- 禁止调用系统 `ffmpeg`
-- `QQ` 保留源格式级规则
-- `酷我` 使用 `format_kwm`
-- `酷狗` 使用 `target_format_kgma / target_format_kgg`
-- 三个平台的最终输出统一限制为 `flac / m4a / mp3 / wav`
-- `ogg` 只允许作为历史输入来源，不再作为新的最终输出格式
-
-## Packaging
-
-```powershell
-cd O:\A_python\A_QKKd
 npm run package
 ```
 
-打包行为:
-- `main` 构建 `QKKDecrypt.exe` (`onefile`)
-- `main-ui` 构建 `QKKDecrypt-UI-setup.exe`
-- `release` 目录只保留本次新版本产物
+默认会构建：
+- `QKKDecrypt.exe`
+- `QKKDecrypt-UI-setup.exe`
 
-运行时目录规则:
-- 外部自动生成:
-  - `plugins`
-  - `_log`
-  - `output`
-- 内部:
-  - 其他非自动生成代码与资源全部打入 onefile 或 `_internal`
+## 合规与风险边界
 
-## PySide6 Note
+以下内容是工程合规说明，不构成法律意见。
 
-`main-ui` 分支采用 `PySide6`。PySide6 基于 Qt for Python，桌面界面由本地 Qt 窗口和 Python 业务逻辑直接驱动。UI 分支只替换 `Presentation` 层，不改业务核心层。
+### 你应当只在这些前提下使用本项目
+- 仅处理你本人拥有**合法访问权限**的本地文件
+- 自行确认你的使用行为符合所在地法律、版权规则、平台协议和组织政策
+- 不要把本项目用于批量分发、倒卖、牟利或规避付费授权
 
-## Attribution
+### 项目不承诺这些事情
+- 不承诺适用于所有地区、所有平台规则、所有用途
+- 不承诺一定符合你所在地区的合规要求
+- 不承诺任何特定商业用途可直接使用
+- 不为用户的侵权、违约或违规使用承担责任
 
-- `QQ 音乐` 解密模型思路参考项目：
+### 对外发布建议口径
+如果你二次分发、改包或转载，请至少保留下列表达：
+
+> 本项目按 GPLv3 发布，仅面向学习、研究与本地文件处理场景。使用者应仅处理自己拥有合法访问权限的文件，并自行确认其行为符合适用法律、版权规则及平台协议。项目作者不对非法或违规用途负责。
+
+## 第三方组件说明
+
+请同时阅读：
+- [THIRD_PARTY_LICENSES.md](./THIRD_PARTY_LICENSES.md)
+
+当前需要特别注意：
+- `PySide6`
+- `PySide6-Fluent-Widgets`
+- `FFmpeg`
+- 其他运行期依赖和打包依赖
+
+## 致谢
+
+- QQ 音乐解密模型思路参考项目：
   - [`qqmusic_decrypt`](https://github.com/luyikk/qqmusic_decrypt)
-- 其他平台模型均为自主逆向学习实现，基于学习交流与尊重正版的目的整理。
-
-## Compliance
-
-- 仅供学习交流使用
-- 请仅处理你本人拥有合法访问权限的本地文件
-- 请遵守版权、平台协议与适用法律
-- 禁止商用
-- 禁止倒卖
-- 倒卖者将举报平台并持续追责
+- 网易云音乐解密模型参考 `ncmdump` 相关实现思路
+- 其他平台相关逻辑以学习、研究和兼容性验证为目的持续整理
 
 ## 许可证
 
-本项目采用下面这条统一口径：
+本仓库源码按 **GNU GPL v3** 发布：
+- [LICENSE](./LICENSE)
 
-> 本仓库中作者自行编写的源码部分采用 MIT 协议；当前分发包包含第三方运行库与工具，整体分发形态不是 MIT-only，第三方组件仍受各自许可证约束。
-
-工程上可以直接理解为：
-- **源码：MIT**
-- **分发包：Mixed / Third-party licenses apply**
-
-这意味着：
-- 你在本仓库中自行编写的源码，继续按 [MIT 协议](LICENSE) 发布
-- 打包后的可执行文件、安装包和随包分发的第三方组件，不应整体宣传为 `MIT-only`
-
-当前分发包中至少存在以下许可证边界：
-- `main-ui` 使用 `PySide6 / Qt for Python`，其运行库适用 `LGPLv3 / GPLv3 / 商业许可` 体系
-- 当前内置 `FFmpeg` 为 GPL 构建
-- `QQ 音乐` 解密模型思路参考了 [`qqmusic_decrypt`](https://github.com/luyikk/qqmusic_decrypt)，该部分按思路来源与致谢处理，不简单并入 MIT 再授权边界
-
-详细第三方许可证与风险点见：
-- [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)
-
-## 重要说明
-本项目 `main-ui` 分支动态链接 `PySide6 / Qt` 运行库。用户可以自由替换对应共享库版本。
-
+如果你计划进行商业使用、闭源分发或接入额外第三方组件，请先自行完成完整的许可证核验和风险评估。
