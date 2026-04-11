@@ -27,6 +27,7 @@ from src.Infrastructure.config_repository import (
     TRANSCODE_SAMPLE_RATE_OPTIONS,
     validate_target_format,
 )
+from src.Infrastructure.kugou_key_refresh import refresh_kugou_key
 from src.Infrastructure.platforms.registry import build_platform_adapter
 from src.Infrastructure.runtime_paths import RuntimePaths
 
@@ -232,6 +233,25 @@ def _run_platform(platform_id: str, config: dict, *, input_override: str | None 
     return run_batch(batch_config, adapter)
 
 
+def _run_kugou_refresh_key_cli(paths: RuntimePaths, config: dict[str, Any], args: argparse.Namespace) -> int:
+    configured = str(config.get("kugou", {}).get("key_file", "") or "").strip()
+    output_path = pathlib.Path(args.output or configured or (paths.assets_dir / "kugou_key.xz"))
+    try:
+        result = refresh_kugou_key(paths, destination=output_path)
+    except Exception as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    config.setdefault("kugou", {})["key_file"] = str(result.output_path)
+    root, _ = load_config(paths)
+    save_config(paths, root, config)
+    print("已抓取新的 kugou_key.xz")
+    print(f"输出路径：{result.output_path}")
+    print(f"来源：{result.source_url}")
+    print(f"大小：{result.file_size} bytes")
+    print(f"SHA256：{result.sha256}")
+    return 0
+
+
 def run_interactive() -> int:
     paths = RuntimePaths.discover()
     config = save_default_config_if_missing(paths)
@@ -278,6 +298,16 @@ def run_interactive() -> int:
         auto_key = auto_find_kugou_key(paths)
         if auto_key is not None:
             settings["key_file"] = str(auto_key)
+        if prompt_bool("是否立即抓取新的 kugou_key.xz", False):
+            try:
+                result = refresh_kugou_key(
+                    paths,
+                    destination=pathlib.Path(str(settings.get("key_file", "") or paths.assets_dir / "kugou_key.xz")),
+                )
+                settings["key_file"] = str(result.output_path)
+                print(f"已更新 kugou_key.xz：{result.output_path}")
+            except Exception as exc:
+                print(f"抓取 kugou_key.xz 失败：{exc}")
     else:
         settings["target_format_ncm"] = prompt_choice("ncm 输出格式 auto/flac/m4a/mp3/wav", str(settings.get("target_format_ncm", "auto")), supported_transcode_formats())
 
@@ -319,6 +349,8 @@ def build_parser(paths: RuntimePaths) -> argparse.ArgumentParser:
             dec.add_argument("--key-file", help="kugou_key.xz 路径")
             dec.add_argument("--format-kgma", choices=supported_transcode_formats(), help="kgma/kgm/vpr 输出格式")
             dec.add_argument("--format-kgg", choices=supported_transcode_formats(), help="kgg 输出格式")
+            refresh_key = platform_sub.add_parser("refresh-key", help="抓取最新的 kugou_key.xz")
+            refresh_key.add_argument("--output", help="保存新的 kugou_key.xz 路径")
         else:
             dec.add_argument("--format-ncm", choices=supported_transcode_formats(), help="ncm 输出格式")
         cover_group = dec.add_mutually_exclusive_group()
@@ -349,13 +381,15 @@ def main(argv: list[str] | None = None) -> int:
         if admin_code is not None:
             return admin_code
         return run_interactive()
+    _, config = load_config(paths)
+    if args.platform == "kugou" and args.command == "refresh-key":
+        return _run_kugou_refresh_key_cli(paths, config, args)
     if args.command != "decrypt":
         parser.print_help()
         return 1
     admin_code = _require_admin(interactive=False)
     if admin_code is not None:
         return admin_code
-    _, config = load_config(paths)
     platform_id = args.platform
     settings = dict(config[platform_id])
     if args.transcode_enabled is not None:

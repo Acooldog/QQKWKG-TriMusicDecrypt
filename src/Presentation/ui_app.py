@@ -60,6 +60,7 @@ from src.Infrastructure.config_repository import (
     TRANSCODE_BITRATE_OPTIONS,
     TRANSCODE_SAMPLE_RATE_OPTIONS,
 )
+from src.Infrastructure.kugou_key_refresh import refresh_kugou_key
 from src.Infrastructure.platforms.registry import build_platform_adapter
 from src.Infrastructure.runtime_paths import RuntimePaths
 from src.Presentation.modern_widgets import AnimatedProgressBar, MetricTile, StatusPill, apply_card_shadow
@@ -588,21 +589,22 @@ class PathField(QFrame):
     def __init__(self, label: str, *, directory: bool) -> None:
         super().__init__()
         self.directory = directory
+        self.action_buttons: dict[str, QPushButton] = {}
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
         self.label = QLabel(label)
         self.label.setObjectName("FieldLabel")
-        row = QHBoxLayout()
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(8)
+        self.row = QHBoxLayout()
+        self.row.setContentsMargins(0, 0, 0, 0)
+        self.row.setSpacing(8)
         self.edit = QLineEdit()
         self.button = QPushButton("选择")
         self.button.setObjectName("SecondaryButton")
-        row.addWidget(self.edit, 1)
-        row.addWidget(self.button)
+        self.row.addWidget(self.edit, 1)
+        self.row.addWidget(self.button)
         layout.addWidget(self.label)
-        layout.addLayout(row)
+        layout.addLayout(self.row)
 
     def text(self) -> str:
         return self.edit.text().strip()
@@ -610,6 +612,13 @@ class PathField(QFrame):
     def setText(self, value: str) -> None:
         self.edit.setText(value)
         self.edit.setCursorPosition(0)
+
+    def add_action_button(self, key: str, text: str, *, object_name: str = "GhostButton") -> QPushButton:
+        button = QPushButton(text)
+        button.setObjectName(object_name)
+        self.row.addWidget(button)
+        self.action_buttons[key] = button
+        return button
 
 
 class BatchDetailDialog(QDialog):
@@ -1563,7 +1572,8 @@ class MainWindow(QWidget):
         kugou_card = PlatformCard("kugou", "酷狗音乐", "文件级离线解密，不要求 KuGou 运行。")
         kugou_card.add_format_combo("target_format_kgma", "kgma/kgm/vpr 输出格式", FORMATS)
         kugou_card.add_format_combo("target_format_kgg", "kgg 输出格式", FORMATS)
-        kugou_card.add_extra_field("key_file", "kugou_key.xz 路径", directory=False)
+        kugou_key_field = kugou_card.add_extra_field("key_file", "kugou_key.xz 路径", directory=False)
+        kugou_key_field.add_action_button("refresh_key", "抓取新密钥")
         kugou_card.add_extra_field("kgg_db_path", "KGMusicV3.db 路径", directory=False)
         kugou_card.add_transcode_profile_controls()
         add_platform_tab(kugou_card, "酷狗音乐")
@@ -1902,6 +1912,7 @@ class MainWindow(QWidget):
             self._cards["kuwo"].extra_field("signature_file"), "选择签名文件", "JSON (*.json);;所有文件 (*.*)"))
         self._cards["kugou"].extra_field("key_file").button.clicked.connect(lambda: self._choose_file(
             self._cards["kugou"].extra_field("key_file"), "选择 kugou_key.xz", "XZ 文件 (*.xz);;所有文件 (*.*)"))
+        self._cards["kugou"].extra_field("key_file").action_buttons["refresh_key"].clicked.connect(self._refresh_kugou_key_from_ui)
         self._cards["kugou"].extra_field("kgg_db_path").button.clicked.connect(lambda: self._choose_file(
             self._cards["kugou"].extra_field("kgg_db_path"), "选择 KGMusicV3.db", "数据库 (*.db);;所有文件 (*.*)"))
         self.bridge.states_changed.connect(self._apply_states)
@@ -2212,6 +2223,35 @@ class MainWindow(QWidget):
             self, title, start, filter_text)
         if selected:
             field.setText(selected)
+
+    def _refresh_kugou_key_from_ui(self) -> None:
+        field = self._cards["kugou"].extra_field("key_file")
+        target = pathlib.Path(field.text() or (self.paths.assets_dir / "kugou_key.xz"))
+        self._append_log("[酷狗音乐] 正在抓取最新 kugou_key.xz ...")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            result = refresh_kugou_key(self.paths, destination=target)
+        except Exception as exc:
+            self._append_log(f"[酷狗音乐] 抓取 kugou_key.xz 失败：{exc}")
+            QMessageBox.warning(self, "抓取密钥失败", str(exc))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        field.setText(str(result.output_path))
+        self._save_config_from_widgets(announce=False)
+        self._append_log(
+            f"[酷狗音乐] 已更新 kugou_key.xz：{result.output_path.name}，来源 {result.source_url}"
+        )
+        QMessageBox.information(
+            self,
+            "抓取密钥成功",
+            (
+                "已更新新的 kugou_key.xz。\n\n"
+                f"路径：{result.output_path}\n"
+                f"来源：{result.source_url}\n"
+                f"大小：{result.file_size} bytes"
+            ),
+        )
 
     def _handle_platform_action(self, platform_id: str) -> None:
         title = self._platform_title(platform_id)
