@@ -60,7 +60,7 @@ from src.Infrastructure.config_repository import (
     TRANSCODE_BITRATE_OPTIONS,
     TRANSCODE_SAMPLE_RATE_OPTIONS,
 )
-from src.Infrastructure.kugou_key_refresh import refresh_kugou_key
+from src.Infrastructure.kugou_key_refresh import default_refreshed_kugou_key_path, refresh_kugou_key
 from src.Infrastructure.platforms.registry import build_platform_adapter
 from src.Infrastructure.runtime_paths import RuntimePaths
 from src.Presentation.modern_widgets import AnimatedProgressBar, MetricTile, StatusPill, apply_card_shadow
@@ -2226,7 +2226,12 @@ class MainWindow(QWidget):
 
     def _refresh_kugou_key_from_ui(self) -> None:
         field = self._cards["kugou"].extra_field("key_file")
-        target = pathlib.Path(field.text() or (self.paths.assets_dir / "kugou_key.xz"))
+        current_text = field.text()
+        current_path = pathlib.Path(current_text).expanduser() if current_text else None
+        if current_path and current_path.name.lower() != "kugou_key.xz":
+            target = current_path
+        else:
+            target = default_refreshed_kugou_key_path(self.paths)
         self._append_log("[酷狗音乐] 正在抓取最新 kugou_key.xz ...")
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
