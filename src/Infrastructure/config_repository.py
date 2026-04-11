@@ -36,10 +36,13 @@ def _read_json(path: pathlib.Path) -> dict[str, Any]:
 
 def iter_kugou_key_candidates(paths: RuntimePaths) -> list[pathlib.Path]:
     candidates = [
+        paths.root_dir / "assets" / "kugou_key_refreshed.xz",
         paths.assets_dir / "kugou_key.xz",
-        paths.bundle_dir / "assets" / "kugou_key.xz",
         paths.root_dir / "assets" / "kugou_key.xz",
+        paths.bundle_dir / "assets" / "kugou_key.xz",
+        paths.bundle_dir / "assets" / "kugou_key_refreshed.xz",
         pathlib.Path.cwd() / "assets" / "kugou_key.xz",
+        pathlib.Path.cwd() / "assets" / "kugou_key_refreshed.xz",
         pathlib.Path.cwd() / "kugou_key.xz",
     ]
     unique: list[pathlib.Path] = []

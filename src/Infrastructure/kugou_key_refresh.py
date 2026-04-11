@@ -15,6 +15,7 @@ from src.Infrastructure.runtime_paths import RuntimePaths
 USER_AGENT = "QKKDecrypt/refresh-kugou-key"
 DEFAULT_TIMEOUT_SEC = 10
 DEFAULT_BRANCH_CANDIDATES = ("main", "main-ui")
+REFRESHED_KEY_FILENAME = "kugou_key_refreshed.xz"
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +42,10 @@ def _candidate_urls(branch_candidates: tuple[str, ...]) -> list[str]:
     return urls
 
 
+def default_refreshed_kugou_key_path(paths: RuntimePaths) -> pathlib.Path:
+    return (paths.root_dir / "assets" / REFRESHED_KEY_FILENAME).resolve()
+
+
 def refresh_kugou_key(
     paths: RuntimePaths,
     *,
@@ -49,7 +54,7 @@ def refresh_kugou_key(
     timeout_sec: int = DEFAULT_TIMEOUT_SEC,
 ) -> KugouKeyRefreshResult:
     paths.ensure_runtime_dirs()
-    output_path = (destination or (paths.assets_dir / "kugou_key.xz")).expanduser().resolve()
+    output_path = (destination or default_refreshed_kugou_key_path(paths)).expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temp_dir = pathlib.Path(tempfile.mkdtemp(prefix="kugou_key_refresh_", dir=str(paths.log_dir)))
     errors: list[str] = []

@@ -31,7 +31,7 @@ from src.Infrastructure.config_repository import (
     TRANSCODE_SAMPLE_RATE_OPTIONS,
     validate_target_format,
 )
-from src.Infrastructure.kugou_key_refresh import refresh_kugou_key
+from src.Infrastructure.kugou_key_refresh import default_refreshed_kugou_key_path, refresh_kugou_key
 from src.Infrastructure.platforms.registry import build_platform_adapter
 from src.Infrastructure.runtime_paths import RuntimePaths
 
@@ -198,7 +198,13 @@ def _run_transcode_batch_cli(paths: RuntimePaths, config: dict[str, Any], args: 
 
 def _run_kugou_refresh_key_cli(paths: RuntimePaths, config: dict[str, Any], args: argparse.Namespace) -> int:
     configured = str(config.get("kugou", {}).get("key_file", "") or "").strip()
-    output_path = pathlib.Path(args.output or configured or (paths.assets_dir / "kugou_key.xz"))
+    configured_path = pathlib.Path(configured).expanduser() if configured else None
+    if args.output:
+        output_path = pathlib.Path(args.output)
+    elif configured_path and configured_path.name.lower() != "kugou_key.xz":
+        output_path = configured_path
+    else:
+        output_path = default_refreshed_kugou_key_path(paths)
     try:
         result = refresh_kugou_key(paths, destination=output_path)
     except Exception as exc:
@@ -436,9 +442,11 @@ def run_interactive() -> int:
             settings["key_file"] = str(auto_key)
         if prompt_bool("是否立即抓取新的 kugou_key.xz", False):
             try:
+                configured_path = pathlib.Path(str(settings.get("key_file", "") or "")).expanduser() if str(settings.get("key_file", "") or "").strip() else None
+                target_path = configured_path if configured_path and configured_path.name.lower() != "kugou_key.xz" else default_refreshed_kugou_key_path(paths)
                 result = refresh_kugou_key(
                     paths,
-                    destination=pathlib.Path(str(settings.get("key_file", "") or paths.assets_dir / "kugou_key.xz")),
+                    destination=target_path,
                 )
                 settings["key_file"] = str(result.output_path)
                 print(f"已更新 kugou_key.xz：{result.output_path}")
