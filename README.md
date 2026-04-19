@@ -5,6 +5,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11+-blue)
 ![License](https://img.shields.io/badge/License-GPLv3-blue)
 ![UI](https://img.shields.io/badge/UI-PySide6%20%2B%20QFluentWidgets-4c8bf5)
+![Downloads](https://img.shields.io/github/downloads/Acooldog/QQKWKG-TriMusicDecrypt/total?label=%E4%B8%8B%E8%BD%BD%E9%87%8F&logo=github&color=2ea44f)
 
 </div>
 
