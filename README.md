@@ -2,10 +2,17 @@
 
 # QKKDecrypt | QQ 酷狗酷我网易云音乐解密工具
 
+<img src="./封面/封面.png" width="320" alt="QKKDecrypt cover">
+
 ![Python](https://img.shields.io/badge/Python-3.11+-blue)
 ![License](https://img.shields.io/badge/License-GPLv3-blue)
 ![UI](https://img.shields.io/badge/UI-PySide6%20%2B%20QFluentWidgets-4c8bf5)
-![Downloads](https://img.shields.io/github/downloads/Acooldog/QQKWKG-TriMusicDecrypt/total?label=%E4%B8%8B%E8%BD%BD%E9%87%8F&logo=github&color=2ea44f)
+![Console](https://img.shields.io/badge/%E6%8E%A7%E5%88%B6%E5%8F%B0%E7%89%88%E6%9C%AC-main-1f6feb)
+![Desktop UI](https://img.shields.io/badge/UI%E7%89%88%E6%9C%AC-main--ui-4c8bf5)
+![Combined Stars](https://img.shields.io/badge/%E4%B8%A4%E4%BB%93%E5%90%88%E8%AE%A1%20Star-157-f6c343?logo=github)
+![Combined Downloads](https://img.shields.io/badge/%E4%B8%A4%E4%BB%93%E5%90%88%E8%AE%A1%E4%B8%8B%E8%BD%BD-2243-2ea44f?logo=github)
+
+<sub>累计 Star / 下载量 = <code>Acooldog/QQKWKG-TriMusicDecrypt</code> + <code>Acooldog/QQMusic-mflac-to-flac</code>（统计于 2026-04-19，下载量按两个仓库全部 Release 资产下载次数求和）</sub>
 
 </div>
 
