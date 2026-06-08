@@ -4,15 +4,6 @@
 
 <img src="./封面/封面.png" width="320" alt="QKKDecrypt cover">
 
-![Python](https://img.shields.io/badge/Python-3.11+-blue)
-![License](https://img.shields.io/badge/License-GPLv3-blue)
-![UI](https://img.shields.io/badge/UI-PySide6%20%2B%20QFluentWidgets-4c8bf5)
-[![Console main](https://img.shields.io/badge/Console-main-1f6feb)](https://github.com/Acooldog/QQKWKG-TriMusicDecrypt/tree/main)
-[![Desktop UI main-ui](https://img.shields.io/badge/Desktop_UI-main--ui-4c8bf5)](https://github.com/Acooldog/QQKWKG-TriMusicDecrypt/tree/main-ui)
-[![Combined Stars](https://img.shields.io/badge/Total_Stars-157-f6c343?logo=github)](https://github.com/Acooldog/QQKWKG-TriMusicDecrypt)
-[![Combined Downloads](https://img.shields.io/badge/Total_Downloads-2.2k-2ea44f?logo=github)](https://github.com/Acooldog/QQKWKG-TriMusicDecrypt/releases)
-
-<sub>累计 Star / 下载量 = <code>Acooldog/QQKWKG-TriMusicDecrypt</code> + <code>Acooldog/QQMusic-mflac-to-flac</code>（统计于 2026-04-19，下载量按两个仓库全部 Release 资产下载次数求和）</sub>
 
 </div>
 
