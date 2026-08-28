@@ -7,6 +7,9 @@
 
 </div>
 
+项目已衍生出agent版本，详情请点击 [https://github.com/Acooldog/TriAgent](TriAgent)
+TriAgent目前处于开发版，可能不稳定
+
 ## 项目定位
 
 `QKKDecrypt` 是一个面向本地文件处理场景的桌面/控制台工具集：
