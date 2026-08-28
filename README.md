@@ -7,7 +7,7 @@
 
 </div>
 
-项目已衍生出agent版本，详情请点击 [https://github.com/Acooldog/TriAgent](TriAgent)
+项目已衍生出agent版本，详情请点击 [TriAgent](https://github.com/Acooldog/TriAgent)
 TriAgent目前处于开发版，可能不稳定
 
 ## 项目定位
